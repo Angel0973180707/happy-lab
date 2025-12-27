@@ -1,1 +1,525 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="theme-color" content="#0f3d2e" />
+  <title>幸福教養｜研發室 happy-lab v0.3</title>
 
+  <link rel="manifest" href="./manifest.json" />
+  <link rel="icon" href="./assets/icon-192.png" />
+  <link rel="apple-touch-icon" href="./assets/icon-192.png" />
+  <link rel="stylesheet" href="./app.css" />
+</head>
+
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="logoDot"></div>
+      <div>
+        <div class="brandTitle">幸福教養｜研發室</div>
+        <div class="brandSub">happy-lab v0.3.2 · 主題→模組→庫存→發佈套件</div>
+      </div>
+    </div>
+
+    <div class="topActions">
+      <button class="btn" id="btnQuickAddDemo">加入示範資料</button>
+
+      <button class="btn" id="btnExport">匯出 JSON</button>
+      <label class="btn ghost fileBtn">
+        匯入 JSON
+        <input id="fileImport" type="file" accept="application/json" />
+      </label>
+    </div>
+  </header>
+
+  <main class="app">
+    <aside class="sidebar">
+      <div class="nav">
+        <button class="navItem active" data-view="themeLab">主題研發室</button>
+        <button class="navItem" data-view="spellLab">咒語生成器</button>
+        <button class="navItem" data-view="moduleLab">模組庫</button>
+        <button class="navItem" data-view="copySpell">文案咒語包</button>
+        <button class="navItem" data-view="copyLab">文案研究室</button>
+        <button class="navItem" data-view="toolLab">工具庫</button>
+        <button class="navItem" data-view="inventoryLab">庫存區</button>
+        <button class="navItem" data-view="publishLab">發片助手</button>
+        <button class="navItem" data-view="courseLab">課程研發</button>
+        <button class="navItem" data-view="ideaLab">發想區</button>
+        <button class="navItem" data-view="settings">設定</button>
+      </div>
+
+      <div class="statsCard">
+        <div class="statsTitle">資料總覽</div>
+        <div id="stats" class="statsGrid"></div>
+      </div>
+
+      <div class="footerNote">
+        你在做的是「用影片長出工具」的系統 🌱<br/>
+        先能用、再能送、最後能升級。
+      </div>
+    </aside>
+
+    <section class="content">
+      <!-- ========== 主題研發室 ========== -->
+      <div class="view active" id="view-themeLab">
+        <div class="viewHead">
+          <h1>主題研發室</h1>
+          <div class="muted">建立主題 → 一鍵配對 → 一鍵建立「發佈套件」</div>
+        </div>
+
+        <div class="grid2">
+          <div class="card">
+            <h2>新增主題</h2>
+            <form id="formTheme" class="form">
+              <label>主題 ID（可留空自動產生）</label>
+              <input id="themeId" placeholder="例如：theme-desire-money（可空）" />
+
+              <label>主題一句（必填）</label>
+              <input id="themeSentence" placeholder="例如：無欲則剛｜零用錢×需要／想要×選擇力" required />
+
+              <label>觀眾卡點</label>
+              <input id="themePain" placeholder="例如：孩子一遇到想要就失控、忍不住、停不下來" />
+
+              <label>情境（超市/在家/學校）</label>
+              <input id="themeScenario" placeholder="例如：超市現場｜看到想買的東西" />
+
+              <label>影片連結（可空，之後庫存區再補）</label>
+              <input id="themeVideo" placeholder="https://..." />
+
+              <label>工具提示（可空）</label>
+              <textarea id="themeToolHint" rows="3" placeholder="例如：需要/想要口袋卡、紅綠燈30秒踩煞車…"></textarea>
+
+              <button class="btn primary" type="submit">新增主題</button>
+            </form>
+          </div>
+
+          <div class="card">
+            <h2>一鍵配對推薦（工具/模組/留言引導）</h2>
+            <form id="formMatch" class="form">
+              <label>選主題 *</label>
+              <select id="matchTheme" required></select>
+
+              <label>配對強度（越高越嚴格）</label>
+              <select id="matchStrict">
+                <option value="0">活潑模式（多給一些靈感）</option>
+                <option value="1">平衡模式</option>
+                <option value="2">嚴格模式（只挑最像）</option>
+              </select>
+
+              <button class="btn primary" type="submit">一鍵配對！</button>
+              <div class="tiny muted">提示：你越常存工具/模組/影片，配對就越準。</div>
+            </form>
+
+            <div class="divider"></div>
+
+            <div class="row wrap">
+              <button class="btn" id="btnMatchToPublish" disabled>把配對結果 → 一鍵建立發佈套件</button>
+              <button class="btn ghost" id="btnOpenPublishLabFromMatch" disabled>前往發片助手</button>
+            </div>
+
+            <div class="divider"></div>
+            <div id="matchResult" class="resultBox muted">尚未配對。</div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="row between">
+            <h2>主題列表</h2>
+            <div class="row">
+              <input id="themeSearch" class="search" placeholder="搜尋主題…" />
+              <select id="themeSort" class="select">
+                <option value="new">最新</option>
+                <option value="old">最舊</option>
+                <option value="az">A→Z</option>
+              </select>
+            </div>
+          </div>
+          <div id="themeList" class="list"></div>
+        </div>
+      </div>
+
+      <!-- ========== 咒語生成器 ========== -->
+      <div class="view" id="view-spellLab">
+        <div class="viewHead">
+          <h1>咒語生成器</h1>
+          <div class="muted">把「主題」一鍵生成可陪伴式模組（A 踩煞車 / B 柔軟溝通）</div>
+        </div>
+
+        <div class="grid2">
+          <div class="card">
+            <h2>生成模組</h2>
+            <form id="formSpell" class="form">
+              <label>選主題 *</label>
+              <select id="spellTheme" required></select>
+
+              <label>模組類型 *</label>
+              <div class="radioRow">
+                <label class="chip"><input type="radio" name="spellType" value="A" checked /> A｜踩煞車＋選擇力</label>
+                <label class="chip"><input type="radio" name="spellType" value="B" /> B｜柔軟彈性＋感恩善解溝通力</label>
+              </div>
+
+              <label>版本代號</label>
+              <input id="spellVersion" value="v1" />
+
+              <label>風格（可空，例如：更遊戲化/更溫柔/更幽默）</label>
+              <input id="spellFlavor" placeholder="例如：更活潑更像闖關" />
+
+              <button class="btn primary" type="submit">生成模組</button>
+            </form>
+          </div>
+
+          <div class="card">
+            <h2>生成結果</h2>
+            <pre id="spellResult" class="pre muted">尚未生成。</pre>
+            <div class="divider"></div>
+            <button class="btn ghost" id="btnOpenModuleLab">前往模組庫</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ========== 模組庫 ========== -->
+      <div class="view" id="view-moduleLab">
+        <div class="viewHead">
+          <h1>模組庫</h1>
+          <div class="muted">A/B 模組都在這裡（可複製、可刪除）</div>
+        </div>
+
+        <div class="card">
+          <div class="row between">
+            <h2>模組列表</h2>
+            <div class="row">
+              <input id="moduleSearch" class="search" placeholder="搜尋模組…" />
+              <select id="moduleFilterType" class="select">
+                <option value="all">全部</option>
+                <option value="A">只看 A</option>
+                <option value="B">只看 B</option>
+              </select>
+            </div>
+          </div>
+          <div id="moduleList" class="list"></div>
+        </div>
+      </div>
+
+      <!-- ========== 文案咒語包 ========== -->
+      <div class="view" id="view-copySpell">
+        <div class="viewHead">
+          <h1>文案咒語包</h1>
+          <div class="muted">主題 + Hook + 承諾 + 正文架構 + 工具 + 留言 + CTA（可存成草稿）</div>
+        </div>
+
+        <div class="grid2">
+          <div class="card">
+            <h2>生成模板</h2>
+            <form id="formCopySpell" class="form">
+              <label>選主題 *</label>
+              <select id="copySpellTheme" required></select>
+
+              <label>系列 *</label>
+              <select id="copySpellSeries" required>
+                <option value="幸福教養">幸福教養</option>
+                <option value="詩詞人生">詩詞人生</option>
+                <option value="腦神經科學">腦神經科學</option>
+                <option value="人生感悟">人生感悟</option>
+                <option value="幸福小腦袋">幸福小腦袋</option>
+              </select>
+
+              <label>CTA 口吻（可空，留空用預設）</label>
+              <input id="copySpellCtaTone" placeholder="例如：回主頁領工具｜每週更新…" />
+
+              <label>生成後是否存成草稿？</label>
+              <select id="copySpellSave">
+                <option value="no">不存（只生成）</option>
+                <option value="yes">存到文案研究室（草稿區）</option>
+              </select>
+
+              <button class="btn primary" type="submit">生成模板</button>
+            </form>
+
+            <div class="divider"></div>
+            <button class="btn ghost" id="btnCopySpellToClipboard">複製模板到剪貼簿</button>
+          </div>
+
+          <div class="card">
+            <h2>模板結果</h2>
+            <pre id="copySpellResult" class="pre muted">尚未生成。</pre>
+          </div>
+        </div>
+      </div>
+
+      <!-- ========== 文案研究室 ========== -->
+      <div class="view" id="view-copyLab">
+        <div class="viewHead">
+          <h1>文案研究室</h1>
+          <div class="muted">存放草稿與完稿（可複製輸出）</div>
+        </div>
+
+        <div class="card">
+          <h2>新增文案</h2>
+          <form id="formCopy" class="form">
+            <label>標題 *</label>
+            <input id="copyTitle" placeholder="例如：無欲則剛｜幸福教養｜口說稿草稿 v1" required />
+
+            <label>系列 *</label>
+            <select id="copySeries" required>
+              <option value="幸福教養">幸福教養</option>
+              <option value="詩詞人生">詩詞人生</option>
+              <option value="腦神經科學">腦神經科學</option>
+              <option value="人生感悟">人生感悟</option>
+              <option value="幸福小腦袋">幸福小腦袋</option>
+            </select>
+
+            <label>內容 *</label>
+            <textarea id="copyContent" rows="8" placeholder="貼上草稿/完稿內容…" required></textarea>
+
+            <button class="btn primary" type="submit">儲存</button>
+          </form>
+        </div>
+
+        <div class="card">
+          <div class="row between">
+            <h2>文案列表</h2>
+            <input id="copySearch" class="search" placeholder="搜尋文案…" />
+          </div>
+          <div id="copyList" class="list"></div>
+        </div>
+      </div>
+
+      <!-- ========== 工具庫 ========== -->
+      <div class="view" id="view-toolLab">
+        <div class="viewHead">
+          <h1>工具庫</h1>
+          <div class="muted">存放每個主題可配對的工具（口袋卡/練習卡/計分器…）</div>
+        </div>
+
+        <div class="card">
+          <h2>新增工具</h2>
+          <form id="formTool" class="form">
+            <label>工具 ID（可留空自動產生）</label>
+            <input id="toolId" placeholder="例如：tool-need-want-card（可空）" />
+
+            <label>工具名稱 *</label>
+            <input id="toolName" placeholder="例如：需要/想要 口袋卡" required />
+
+            <label>工具說明</label>
+            <textarea id="toolDesc" rows="6" placeholder="工具怎麼用？可以直接照念的句子是？"></textarea>
+
+            <button class="btn primary" type="submit">新增工具</button>
+          </form>
+        </div>
+
+        <div class="card">
+          <div class="row between">
+            <h2>工具列表</h2>
+            <input id="toolSearch" class="search" placeholder="搜尋工具…" />
+          </div>
+          <div id="toolList" class="list"></div>
+        </div>
+      </div>
+
+      <!-- ========== 庫存區 ========== -->
+      <div class="view" id="view-inventoryLab">
+        <div class="viewHead">
+          <h1>庫存區</h1>
+          <div class="muted">分類存放：影片/工具/文案（方便日後發片挑工具附上）</div>
+        </div>
+
+        <div class="grid2">
+          <div class="card">
+            <h2>新增影片到庫存</h2>
+            <form id="formVideo" class="form">
+              <label>影片 ID（可空自動產生）</label>
+              <input id="videoId" placeholder="例如：video-001（可空）" />
+
+              <label>影片標題 *</label>
+              <input id="videoTitle" placeholder="例如：無欲則剛｜孩子學會等一下…" required />
+
+              <label>影片連結 *</label>
+              <input id="videoUrl" placeholder="https://..." required />
+
+              <label>系列 *</label>
+              <select id="videoSeries" required>
+                <option value="幸福教養">幸福教養</option>
+                <option value="詩詞人生">詩詞人生</option>
+                <option value="腦神經科學">腦神經科學</option>
+                <option value="人生感悟">人生感悟</option>
+                <option value="幸福小腦袋">幸福小腦袋</option>
+              </select>
+
+              <button class="btn primary" type="submit">新增影片</button>
+            </form>
+          </div>
+
+          <div class="card">
+            <div class="row between">
+              <h2>庫存瀏覽</h2>
+              <div class="tabs">
+                <button class="tab active" data-inv="videos">影片</button>
+                <button class="tab" data-inv="tools">工具</button>
+                <button class="tab" data-inv="copies">文案</button>
+              </div>
+            </div>
+            <div id="inventoryPanel" class="list"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ========== 發片助手 ========== -->
+      <div class="view" id="view-publishLab">
+        <div class="viewHead">
+          <h1>發片助手</h1>
+          <div class="muted">主題 + 影片 + 工具 +（可選模組/文案）→ 打包成「發佈套件」</div>
+        </div>
+
+        <div class="card">
+          <h2>新增發佈套件</h2>
+          <form id="formPublish" class="form">
+            <label>主題 *</label>
+            <select id="publishTheme" required></select>
+
+            <label>影片 *</label>
+            <select id="publishVideo" required></select>
+
+            <label>工具 *</label>
+            <select id="publishTool" required></select>
+
+            <label>模組（可選）</label>
+            <select id="publishModule">
+              <option value="">（不選）</option>
+            </select>
+
+            <label>文案（可選）</label>
+            <select id="publishCopy">
+              <option value="">（不選）</option>
+            </select>
+
+            <label>備註（可選）</label>
+            <input id="publishNote" placeholder="例如：本集要推超市30秒踩煞車，留言引導用一句…" />
+
+            <button class="btn primary" type="submit">打包發佈套件</button>
+          </form>
+        </div>
+
+        <div class="card">
+          <div class="row between">
+            <h2>發佈套件列表</h2>
+            <input id="publishSearch" class="search" placeholder="搜尋套件…" />
+          </div>
+          <div id="publishList" class="list"></div>
+        </div>
+      </div>
+
+      <!-- ========== 課程研發 ========== -->
+      <div class="view" id="view-courseLab">
+        <div class="viewHead">
+          <h1>課程研發</h1>
+          <div class="muted">把模組整理成「初階6模組 / 進階6模組」課綱</div>
+        </div>
+
+        <div class="grid2">
+          <div class="card">
+            <h2>新增課程</h2>
+            <form id="formCourse" class="form">
+              <label>課程 ID（可空自動產生）</label>
+              <input id="courseId" placeholder="例如：course-basic-01（可空）" />
+
+              <label>課程名稱 *</label>
+              <input id="courseName" placeholder="例如：幸福教養 初階（6模組）" required />
+
+              <label>課程描述</label>
+              <textarea id="courseDesc" rows="4" placeholder="課程定位、適用對象、課程目標…"></textarea>
+
+              <button class="btn primary" type="submit">新增課程</button>
+            </form>
+
+            <div class="divider"></div>
+
+            <h2>把模組加入課程</h2>
+            <form id="formAssign" class="form">
+              <label>選課程 *</label>
+              <select id="assignCourse" required></select>
+
+              <label>選模組 *</label>
+              <select id="assignModule" required></select>
+
+              <button class="btn" type="submit">加入模組</button>
+            </form>
+          </div>
+
+          <div class="card">
+            <div class="row between">
+              <h2>課程列表</h2>
+              <input id="courseSearch" class="search" placeholder="搜尋課程…" />
+            </div>
+            <div id="courseList" class="list"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ========== 發想區 ========== -->
+      <div class="view" id="view-ideaLab">
+        <div class="viewHead">
+          <h1>發想區</h1>
+          <div class="muted">把靈感先存起來（影片、工具、課程、教材的下一步）</div>
+        </div>
+
+        <div class="grid2">
+          <div class="card">
+            <h2>新增發想</h2>
+            <form id="formIdea" class="form">
+              <label>標題 *</label>
+              <input id="ideaTitle" placeholder="例如：專注力闖關｜1分鐘回到當下" required />
+              <label>內容</label>
+              <textarea id="ideaDesc" rows="6" placeholder="想到什麼都可以先丟這裡…"></textarea>
+              <button class="btn primary" type="submit">儲存</button>
+            </form>
+          </div>
+
+          <div class="card">
+            <div class="row between">
+              <h2>發想列表</h2>
+              <input id="ideaSearch" class="search" placeholder="搜尋發想…" />
+            </div>
+            <div id="ideaList" class="list"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ========== 設定 ========== -->
+      <div class="view" id="view-settings">
+        <div class="viewHead">
+          <h1>設定</h1>
+          <div class="muted">匯出/匯入在上方，這裡是清除資料與說明</div>
+        </div>
+
+        <div class="card">
+          <h2>匯入/匯出（備援）</h2>
+          <div class="row wrap">
+            <button class="btn" id="btnExport2">匯出 JSON</button>
+            <label class="btn ghost fileBtn">
+              匯入 JSON
+              <input id="fileImport2" type="file" accept="application/json" />
+            </label>
+          </div>
+
+          <div class="divider"></div>
+
+          <h2>危險區</h2>
+          <button class="btn danger" id="btnClearAll">清除所有資料（localStorage）</button>
+
+          <div class="divider"></div>
+
+          <div class="muted">
+            提醒：這是一個「研發室」——資料儲存在本機瀏覽器（localStorage）。<br/>
+            請常常匯出 JSON 做備份。
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <div id="toast" class="toast" aria-live="polite"></div>
+
+  <script src="./app.js"></script>
+</body>
+                </html>
