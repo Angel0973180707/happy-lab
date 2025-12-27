@@ -1,1 +1,14 @@
-
+{
+  "name": "幸福教養｜研發室 (happy-lab)",
+  "short_name": "happy-lab",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0f3d2e",
+  "theme_color": "#0f3d2e",
+  "description": "主題→模組→庫存→發佈套件：用影片長出工具的研發室。",
+  "icons": [
+    { "src": "./assets/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "./assets/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}
