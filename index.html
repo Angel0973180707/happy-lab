@@ -4,18 +4,18 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <meta name="theme-color" content="#0f3d2e" />
-  <title>幸福教養｜研發室 happy-lab v0.3</title>
+  <title>幸福教養｜研發室 happy-lab v0.3.2</title>
 
   <link rel="manifest" href="./manifest.json" />
-  <link rel="icon" href="./assets/icon-192.png" />
-  <link rel="apple-touch-icon" href="./assets/icon-192.png" />
+  <link rel="icon" href="./icon-192.png" />
+  <link rel="apple-touch-icon" href="./icon-192.png" />
   <link rel="stylesheet" href="./app.css" />
 </head>
 
 <body>
   <header class="topbar">
     <div class="brand">
-      <div class="logoDot"></div>
+      <div class="logoDot" aria-hidden="true"></div>
       <div>
         <div class="brandTitle">幸福教養｜研發室</div>
         <div class="brandSub">happy-lab v0.3.2 · 主題→模組→庫存→發佈套件</div>
@@ -24,7 +24,6 @@
 
     <div class="topActions">
       <button class="btn" id="btnQuickAddDemo">加入示範資料</button>
-
       <button class="btn" id="btnExport">匯出 JSON</button>
       <label class="btn ghost fileBtn">
         匯入 JSON
@@ -64,7 +63,7 @@
       <!-- ========== 主題研發室 ========== -->
       <div class="view active" id="view-themeLab">
         <div class="viewHead">
-          <h1>主題研發室</h1>
+          <h1 class="bigTitle">主題研發室</h1>
           <div class="muted">建立主題 → 一鍵配對 → 一鍵建立「發佈套件」</div>
         </div>
 
@@ -142,7 +141,7 @@
       <!-- ========== 咒語生成器 ========== -->
       <div class="view" id="view-spellLab">
         <div class="viewHead">
-          <h1>咒語生成器</h1>
+          <h1 class="bigTitle">咒語生成器</h1>
           <div class="muted">把「主題」一鍵生成可陪伴式模組（A 踩煞車 / B 柔軟溝通）</div>
         </div>
 
@@ -181,7 +180,7 @@
       <!-- ========== 模組庫 ========== -->
       <div class="view" id="view-moduleLab">
         <div class="viewHead">
-          <h1>模組庫</h1>
+          <h1 class="bigTitle">模組庫</h1>
           <div class="muted">A/B 模組都在這裡（可複製、可刪除）</div>
         </div>
 
@@ -204,7 +203,7 @@
       <!-- ========== 文案咒語包 ========== -->
       <div class="view" id="view-copySpell">
         <div class="viewHead">
-          <h1>文案咒語包</h1>
+          <h1 class="bigTitle">文案咒語包</h1>
           <div class="muted">主題 + Hook + 承諾 + 正文架構 + 工具 + 留言 + CTA（可存成草稿）</div>
         </div>
 
@@ -220,6 +219,7 @@
                 <option value="幸福教養">幸福教養</option>
                 <option value="詩詞人生">詩詞人生</option>
                 <option value="腦神經科學">腦神經科學</option>
+                <option value="心理學">心理學</option>
                 <option value="人生感悟">人生感悟</option>
                 <option value="幸福小腦袋">幸福小腦袋</option>
               </select>
@@ -250,7 +250,7 @@
       <!-- ========== 文案研究室 ========== -->
       <div class="view" id="view-copyLab">
         <div class="viewHead">
-          <h1>文案研究室</h1>
+          <h1 class="bigTitle">文案研究室</h1>
           <div class="muted">存放草稿與完稿（可複製輸出）</div>
         </div>
 
@@ -265,6 +265,7 @@
               <option value="幸福教養">幸福教養</option>
               <option value="詩詞人生">詩詞人生</option>
               <option value="腦神經科學">腦神經科學</option>
+              <option value="心理學">心理學</option>
               <option value="人生感悟">人生感悟</option>
               <option value="幸福小腦袋">幸福小腦袋</option>
             </select>
@@ -288,7 +289,7 @@
       <!-- ========== 工具庫 ========== -->
       <div class="view" id="view-toolLab">
         <div class="viewHead">
-          <h1>工具庫</h1>
+          <h1 class="bigTitle">工具庫</h1>
           <div class="muted">存放每個主題可配對的工具（口袋卡/練習卡/計分器…）</div>
         </div>
 
@@ -320,7 +321,7 @@
       <!-- ========== 庫存區 ========== -->
       <div class="view" id="view-inventoryLab">
         <div class="viewHead">
-          <h1>庫存區</h1>
+          <h1 class="bigTitle">庫存區</h1>
           <div class="muted">分類存放：影片/工具/文案（方便日後發片挑工具附上）</div>
         </div>
 
@@ -342,6 +343,7 @@
                 <option value="幸福教養">幸福教養</option>
                 <option value="詩詞人生">詩詞人生</option>
                 <option value="腦神經科學">腦神經科學</option>
+                <option value="心理學">心理學</option>
                 <option value="人生感悟">人生感悟</option>
                 <option value="幸福小腦袋">幸福小腦袋</option>
               </select>
@@ -366,53 +368,55 @@
 
       <!-- ========== 發片助手 ========== -->
       <div class="view" id="view-publishLab">
-        <div class="viewHead">
-          <h1>發片助手</h1>
-          <div class="muted">主題 + 影片 + 工具 +（可選模組/文案）→ 打包成「發佈套件」</div>
-        </div>
-
-        <div class="card">
-          <h2>新增發佈套件</h2>
-          <form id="formPublish" class="form">
-            <label>主題 *</label>
-            <select id="publishTheme" required></select>
-
-            <label>影片 *</label>
-            <select id="publishVideo" required></select>
-
-            <label>工具 *</label>
-            <select id="publishTool" required></select>
-
-            <label>模組（可選）</label>
-            <select id="publishModule">
-              <option value="">（不選）</option>
-            </select>
-
-            <label>文案（可選）</label>
-            <select id="publishCopy">
-              <option value="">（不選）</option>
-            </select>
-
-            <label>備註（可選）</label>
-            <input id="publishNote" placeholder="例如：本集要推超市30秒踩煞車，留言引導用一句…" />
-
-            <button class="btn primary" type="submit">打包發佈套件</button>
-          </form>
-        </div>
-
-        <div class="card">
-          <div class="row between">
-            <h2>發佈套件列表</h2>
-            <input id="publishSearch" class="search" placeholder="搜尋套件…" />
+        <div class="publish-helper">
+          <div class="viewHead">
+            <h1 class="bigTitle">發片助手</h1>
+            <div class="muted">主題 + 影片 + 工具 +（可選模組/文案）→ 打包成「發佈套件」</div>
           </div>
-          <div id="publishList" class="list"></div>
-        </div>
-      </div>
+
+          <div class="card">
+            <h2>新增發佈套件</h2>
+            <form id="formPublish" class="form">
+              <label>主題 *</label>
+              <select id="publishTheme" required></select>
+
+              <label>影片 *</label>
+              <select id="publishVideo" required></select>
+
+              <label>工具 *</label>
+              <select id="publishTool" required></select>
+
+              <label>模組（可選）</label>
+              <select id="publishModule">
+                <option value="">（不選）</option>
+              </select>
+
+              <label>文案（可選）</label>
+              <select id="publishCopy">
+                <option value="">（不選）</option>
+              </select>
+
+              <label>備註（可選）</label>
+              <input id="publishNote" placeholder="例如：本集要推超市30秒踩煞車，留言引導用一句…" />
+
+              <button class="btn primary" type="submit">打包發佈套件</button>
+            </form>
+          </div>
+
+          <div class="card">
+            <div class="row between">
+              <h2>發佈套件列表</h2>
+              <input id="publishSearch" class="search" placeholder="搜尋套件…" />
+            </div>
+            <div id="publishList" class="list"></div>
+          </div>
+        </div><!-- /.publish-helper -->
+      </div><!-- /#view-publishLab -->
 
       <!-- ========== 課程研發 ========== -->
       <div class="view" id="view-courseLab">
         <div class="viewHead">
-          <h1>課程研發</h1>
+          <h1 class="bigTitle">課程研發</h1>
           <div class="muted">把模組整理成「初階6模組 / 進階6模組」課綱</div>
         </div>
 
@@ -459,7 +463,7 @@
       <!-- ========== 發想區 ========== -->
       <div class="view" id="view-ideaLab">
         <div class="viewHead">
-          <h1>發想區</h1>
+          <h1 class="bigTitle">發想區</h1>
           <div class="muted">把靈感先存起來（影片、工具、課程、教材的下一步）</div>
         </div>
 
@@ -488,7 +492,7 @@
       <!-- ========== 設定 ========== -->
       <div class="view" id="view-settings">
         <div class="viewHead">
-          <h1>設定</h1>
+          <h1 class="bigTitle">設定</h1>
           <div class="muted">匯出/匯入在上方，這裡是清除資料與說明</div>
         </div>
 
@@ -522,4 +526,4 @@
 
   <script src="./app.js"></script>
 </body>
-                </html>
+              </html>
