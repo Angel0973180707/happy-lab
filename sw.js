@@ -1,64 +1,62 @@
-// happy-lab v0.3.2 service worker (root icons)
-const CACHE_NAME = "happy-lab-v0.3.2";
-const ASSETS = [
+/* happy-lab sw.js v0.3.2.2 */
+
+const CACHE_NAME = "happy-lab-cache-v0.3.2.2";
+const CORE_ASSETS = [
   "./",
   "./index.html",
   "./app.css",
   "./app.js",
   "./manifest.json",
-  "./icon-192.png",
-  "./icon-512.png"
+  "./assets/icon-192.png",
+  "./assets/icon-512.png"
 ];
 
+// install
 self.addEventListener("install", (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(ASSETS))
+    caches.open(CACHE_NAME).then((cache) => cache.addAll(CORE_ASSETS)).then(() => self.skipWaiting())
   );
-  self.skipWaiting();
 });
 
+// activate
 self.addEventListener("activate", (event) => {
   event.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(
-        keys.map((k) => (k !== CACHE_NAME ? caches.delete(k) : null))
-      )
-    )
+    (async () => {
+      const keys = await caches.keys();
+      await Promise.all(keys.map((k) => (k !== CACHE_NAME ? caches.delete(k) : Promise.resolve())));
+      await self.clients.claim();
+    })()
   );
-  self.clients.claim();
 });
 
-// Navigation: network-first, Assets: cache-first
+// fetch: cache-first for same-origin, network fallback
 self.addEventListener("fetch", (event) => {
   const req = event.request;
   const url = new URL(req.url);
 
-  // only same-origin
+  // only handle same-origin GET
+  if (req.method !== "GET") return;
   if (url.origin !== self.location.origin) return;
 
-  // page navigations
-  if (req.mode === "navigate") {
-    event.respondWith(
-      fetch(req)
-        .then((res) => {
-          const copy = res.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put("./index.html", copy));
-          return res;
-        })
-        .catch(() => caches.match("./index.html"))
-    );
-    return;
-  }
-
-  // static assets
   event.respondWith(
-    caches.match(req).then((cached) => {
+    (async () => {
+      const cache = await caches.open(CACHE_NAME);
+      const cached = await cache.match(req);
       if (cached) return cached;
-      return fetch(req).then((res) => {
-        const copy = res.clone();
-        caches.open(CACHE_NAME).then((cache) => cache.put(req, copy));
-        return res;
-      });
-    })
+
+      try {
+        const fresh = await fetch(req);
+        // cache a copy (avoid opaque issues)
+        if (fresh && fresh.ok) cache.put(req, fresh.clone());
+        return fresh;
+      } catch (e) {
+        // offline fallback: try index for navigation
+        if (req.mode === "navigate") {
+          const fallback = await cache.match("./index.html");
+          if (fallback) return fallback;
+        }
+        throw e;
+      }
+    })()
   );
 });
