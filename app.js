@@ -1,1455 +1,1609 @@
-// happy-lab v0.3.2 — Adds: Match → One-click create Publish Pack
-const K = {
-  themes: "happyLab.themes",
-  modules: "happyLab.modules",
-  copies: "happyLab.copy",
-  tools: "happyLab.tools",
-  videos: "happyLab.videos",
-  publishes: "happyLab.publishes",
-  courses: "happyLab.courses",
-  ideas: "happyLab.ideas",
-  meta: "happyLab.meta"
-};
+/* happy-lab v0.3.2 app.js
+   - localStorage 資料庫
+   - 導覽切頁
+   - 主題/工具/影片/文案/模組/發佈套件/課程/發想 CRUD
+   - 一鍵配對（簡易關鍵字打分）
+   - 咒語生成器（A/B 模組結構）
+   - 文案咒語包（模板）
+   - 匯入/匯出 JSON
+   - 統計總覽
+*/
+(function () {
+  "use strict";
 
-// ---------- utils ----------
-const $ = (sel) => document.querySelector(sel);
-const $$ = (sel) => [...document.querySelectorAll(sel)];
-const nowISO = () => new Date().toISOString();
-const toast = (msg) => {
-  const el = $("#toast");
-  el.textContent = msg;
-  el.classList.add("show");
-  setTimeout(() => el.classList.remove("show"), 1600);
-};
-const safeJson = (x, fallback) => { try { return JSON.parse(x); } catch { return fallback; } };
-const uid = (prefix="id") => `${prefix}-${Math.random().toString(36).slice(2, 9)}-${Date.now().toString(36)}`;
-const byText = (s="") => (s ?? "").toString().toLowerCase();
-
-function load(key, fallback){ return safeJson(localStorage.getItem(key) ?? "", fallback); }
-function save(key, value){ localStorage.setItem(key, JSON.stringify(value)); }
-
-function getAllData(){
-  return {
-    version: "v0.3.2",
-    exportedAt: nowISO(),
-    themes: load(K.themes, []),
-    modules: load(K.modules, []),
-    copies: load(K.copies, []),
-    tools: load(K.tools, []),
-    videos: load(K.videos, []),
-    publishes: load(K.publishes, []),
-    courses: load(K.courses, []),
-    ideas: load(K.ideas, []),
-    meta: load(K.meta, {})
-  };
-}
-
-function setAllData(data){
-  save(K.themes, data.themes ?? []);
-  save(K.modules, data.modules ?? []);
-  save(K.copies, data.copies ?? []);
-  save(K.tools, data.tools ?? []);
-  save(K.videos, data.videos ?? []);
-  save(K.publishes, data.publishes ?? []);
-  save(K.courses, data.courses ?? []);
-  save(K.ideas, data.ideas ?? []);
-  save(K.meta, data.meta ?? {});
-}
-
-const db = {
-  themes(){ return load(K.themes, []); },
-  modules(){ return load(K.modules, []); },
-  copies(){ return load(K.copies, []); },
-  tools(){ return load(K.tools, []); },
-  videos(){ return load(K.videos, []); },
-  publishes(){ return load(K.publishes, []); },
-  courses(){ return load(K.courses, []); },
-  ideas(){ return load(K.ideas, []); },
-
-  setThemes(v){ save(K.themes, v); },
-  setModules(v){ save(K.modules, v); },
-  setCopies(v){ save(K.copies, v); },
-  setTools(v){ save(K.tools, v); },
-  setVideos(v){ save(K.videos, v); },
-  setPublishes(v){ save(K.publishes, v); },
-  setCourses(v){ save(K.courses, v); },
-  setIdeas(v){ save(K.ideas, v); },
-};
-
-function findTheme(id){ return db.themes().find(x => x.id === id); }
-function findTool(id){ return db.tools().find(x => x.id === id); }
-function findVideo(id){ return db.videos().find(x => x.id === id); }
-function findModule(id){ return db.modules().find(x => x.id === id); }
-function findCopy(id){ return db.copies().find(x => x.id === id); }
-
-// ---------- UI helpers ----------
-function itemShell({title, metaLines=[], body="", buttons=[]}){
-  const el = document.createElement("div");
-  el.className = "item";
-  el.innerHTML = `
-    <div class="itemTop">
-      <div>
-        <div class="itemTitle"></div>
-        <div class="itemMeta"></div>
-      </div>
-      <div class="itemBtns"></div>
-    </div>
-    <div class="itemBody"></div>
-  `;
-  el.querySelector(".itemTitle").textContent = title;
-  el.querySelector(".itemMeta").textContent = metaLines.filter(Boolean).join(" · ");
-  el.querySelector(".itemBody").textContent = body || "";
-  const btns = el.querySelector(".itemBtns");
-  buttons.forEach(b => btns.appendChild(b));
-  return el;
-}
-
-function btn(text, onClick, cls="iconBtn"){
-  const b = document.createElement("button");
-  b.type = "button";
-  b.className = cls;
-  b.textContent = text;
-  b.addEventListener("click", onClick);
-  return b;
-}
-
-function copyToClipboard(text){
-  navigator.clipboard?.writeText(text).then(()=>toast("已複製到剪貼簿")).catch(()=>{
-    const ta = document.createElement("textarea");
-    ta.value = text; document.body.appendChild(ta);
-    ta.select(); document.execCommand("copy");
+  // ======= utils =======
+  function qs(sel, root) { return (root || document).querySelector(sel); }
+  function qsa(sel, root) { return Array.prototype.slice.call((root || document).querySelectorAll(sel)); }
+  function nowISO() { return new Date().toISOString(); }
+  function uid(prefix) {
+    var t = new Date().getTime();
+    var r = Math.floor(Math.random() * 100000);
+    return (prefix || "id") + "-" + t + "-" + r;
+  }
+  function safeText(s) { return (s == null) ? "" : String(s); }
+  function norm(s) {
+    s = safeText(s).toLowerCase();
+    // 簡易正規化：去掉常見分隔
+    var rep = ["｜", "|", "×", "／", "/", "，", ",", "。", ".", "「", "」", "（", "）", "(", ")", "—", "-", "_", ":", "：", " "];
+    for (var i = 0; i < rep.length; i++) s = s.split(rep[i]).join(" ");
+    return s.replace(/\s+/g, " ").trim();
+  }
+  function keywords(s) {
+    s = norm(s);
+    if (!s) return [];
+    // 中文沒有空白時，這邊用「空白拆」+「保留原句」
+    var arr = s.split(" ");
+    var out = [];
+    for (var i = 0; i < arr.length; i++) {
+      var w = arr[i].trim();
+      if (w && w.length >= 2) out.push(w);
+    }
+    // 去重
+    var seen = {};
+    var uniq = [];
+    for (var j = 0; j < out.length; j++) {
+      if (!seen[out[j]]) { seen[out[j]] = 1; uniq.push(out[j]); }
+    }
+    return uniq;
+  }
+  function scoreByOverlap(aText, bText) {
+    var a = keywords(aText);
+    var b = keywords(bText);
+    if (!a.length || !b.length) return 0;
+    var map = {};
+    for (var i = 0; i < a.length; i++) map[a[i]] = 1;
+    var hit = 0;
+    for (var j = 0; j < b.length; j++) if (map[b[j]]) hit++;
+    return hit;
+  }
+  function escapeHtml(s) {
+    s = safeText(s);
+    return s
+      .split("&").join("&amp;")
+      .split("<").join("&lt;")
+      .split(">").join("&gt;")
+      .split('"').join("&quot;")
+      .split("'").join("&#39;");
+  }
+  function toast(msg) {
+    var el = qs("#toast");
+    if (!el) return;
+    el.textContent = msg;
+    el.classList.add("show");
+    setTimeout(function () { el.classList.remove("show"); }, 1600);
+  }
+  function copyToClipboard(text) {
+    text = safeText(text);
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function () {
+        toast("已複製到剪貼簿");
+      }).catch(function () {
+        fallbackCopy(text);
+      });
+    } else {
+      fallbackCopy(text);
+    }
+  }
+  function fallbackCopy(text) {
+    var ta = document.createElement("textarea");
+    ta.value = text;
+    ta.setAttribute("readonly", "readonly");
+    ta.style.position = "fixed";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    try {
+      document.execCommand("copy");
+      toast("已複製到剪貼簿");
+    } catch (e) {
+      toast("複製失敗，請手動複製");
+    }
     document.body.removeChild(ta);
-    toast("已複製到剪貼簿");
-  });
-}
+  }
 
-// ---------- view router ----------
-function setView(viewName){
-  $$(".navItem").forEach(btn => btn.classList.toggle("active", btn.dataset.view === viewName));
-  $$(".view").forEach(v => v.classList.remove("active"));
-  $(`#view-${viewName}`).classList.add("active");
-  refreshAllSelects();
-  renderAll();
-}
-$$(".navItem").forEach(btn => btn.addEventListener("click", () => setView(btn.dataset.view)));
+  // ======= storage =======
+  var KEY = "happyLab_v0_3_2";
+  function defaultDB() {
+    return {
+      meta: { version: "0.3.2", updatedAt: nowISO() },
+      themes: [],
+      tools: [],
+      videos: [],
+      copies: [],
+      modules: [],
+      publishes: [],
+      courses: [], // {id,name,desc,createdAt, moduleIds:[]}
+      ideas: [],
+      _lastMatch: null
+    };
+  }
+  function loadDB() {
+    try {
+      var raw = localStorage.getItem(KEY);
+      if (!raw) return defaultDB();
+      var obj = JSON.parse(raw);
+      if (!obj || typeof obj !== "object") return defaultDB();
+      // 補缺欄位
+      var base = defaultDB();
+      for (var k in base) if (base.hasOwnProperty(k) && obj[k] == null) obj[k] = base[k];
+      if (!obj.meta) obj.meta = base.meta;
+      return obj;
+    } catch (e) {
+      return defaultDB();
+    }
+  }
+  function saveDB(db) {
+    db.meta.updatedAt = nowISO();
+    localStorage.setItem(KEY, JSON.stringify(db));
+  }
+  var db = loadDB();
 
-// ---------- top actions ----------
-function bindTopActions(){
-  $("#btnQuickAddDemo").addEventListener("click", seedDemo);
-  const doExport = () => exportJson();
-  $("#btnExport").addEventListener("click", doExport);
-  $("#btnExport2").addEventListener("click", doExport);
+  // ======= DOM refs =======
+  // nav/views
+  var navItems = qsa(".navItem");
+  var views = qsa(".view");
 
-  $("#fileImport").addEventListener("change", (e)=>importJson(e.target.files?.[0]));
-  $("#fileImport2").addEventListener("change", (e)=>importJson(e.target.files?.[0]));
-}
+  // stats
+  var statsEl = qs("#stats");
 
-function exportJson(){
-  const data = getAllData();
-  const blob = new Blob([JSON.stringify(data, null, 2)], {type:"application/json"});
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `happy-lab_v0.3.2_export_${new Date().toISOString().slice(0,10)}.json`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-  toast("已匯出");
-}
+  // Theme lab
+  var formTheme = qs("#formTheme");
+  var themeId = qs("#themeId");
+  var themeSentence = qs("#themeSentence");
+  var themePain = qs("#themePain");
+  var themeScenario = qs("#themeScenario");
+  var themeVideo = qs("#themeVideo");
+  var themeToolHint = qs("#themeToolHint");
+  var themeList = qs("#themeList");
+  var themeSearch = qs("#themeSearch");
+  var themeSort = qs("#themeSort");
 
-function importJson(file){
-  if(!file) return;
-  const r = new FileReader();
-  r.onload = () => {
-    const data = safeJson(r.result, null);
-    if(!data || typeof data !== "object"){ toast("匯入失敗：格式不正確"); return; }
-    setAllData(data);
-    toast("匯入成功");
-    refreshAllSelects();
+  // Match
+  var formMatch = qs("#formMatch");
+  var matchTheme = qs("#matchTheme");
+  var matchStrict = qs("#matchStrict");
+  var matchResult = qs("#matchResult");
+  var btnMatchToPublish = qs("#btnMatchToPublish");
+  var btnOpenPublishLabFromMatch = qs("#btnOpenPublishLabFromMatch");
+
+  // Spell lab
+  var formSpell = qs("#formSpell");
+  var spellTheme = qs("#spellTheme");
+  var spellVersion = qs("#spellVersion");
+  var spellFlavor = qs("#spellFlavor");
+  var spellResult = qs("#spellResult");
+  var btnOpenModuleLab = qs("#btnOpenModuleLab");
+
+  // Module lab
+  var moduleList = qs("#moduleList");
+  var moduleSearch = qs("#moduleSearch");
+  var moduleFilterType = qs("#moduleFilterType");
+
+  // Copy spell
+  var formCopySpell = qs("#formCopySpell");
+  var copySpellTheme = qs("#copySpellTheme");
+  var copySpellSeries = qs("#copySpellSeries");
+  var copySpellCtaTone = qs("#copySpellCtaTone");
+  var copySpellSave = qs("#copySpellSave");
+  var copySpellResult = qs("#copySpellResult");
+  var btnCopySpellToClipboard = qs("#btnCopySpellToClipboard");
+
+  // Copy lab
+  var formCopy = qs("#formCopy");
+  var copyTitle = qs("#copyTitle");
+  var copySeries = qs("#copySeries");
+  var copyContent = qs("#copyContent");
+  var copyList = qs("#copyList");
+  var copySearch = qs("#copySearch");
+
+  // Tool lab
+  var formTool = qs("#formTool");
+  var toolId = qs("#toolId");
+  var toolName = qs("#toolName");
+  var toolDesc = qs("#toolDesc");
+  var toolList = qs("#toolList");
+  var toolSearch = qs("#toolSearch");
+
+  // Inventory
+  var formVideo = qs("#formVideo");
+  var videoId = qs("#videoId");
+  var videoTitle = qs("#videoTitle");
+  var videoUrl = qs("#videoUrl");
+  var videoSeries = qs("#videoSeries");
+  var inventoryPanel = qs("#inventoryPanel");
+  var invTabs = qsa(".tab");
+
+  // Publish lab
+  var formPublish = qs("#formPublish");
+  var publishTheme = qs("#publishTheme");
+  var publishVideo = qs("#publishVideo");
+  var publishTool = qs("#publishTool");
+  var publishModule = qs("#publishModule");
+  var publishCopy = qs("#publishCopy");
+  var publishNote = qs("#publishNote");
+  var publishList = qs("#publishList");
+  var publishSearch = qs("#publishSearch");
+
+  // Course lab
+  var formCourse = qs("#formCourse");
+  var courseId = qs("#courseId");
+  var courseName = qs("#courseName");
+  var courseDesc = qs("#courseDesc");
+  var formAssign = qs("#formAssign");
+  var assignCourse = qs("#assignCourse");
+  var assignModule = qs("#assignModule");
+  var courseList = qs("#courseList");
+  var courseSearch = qs("#courseSearch");
+
+  // Idea lab
+  var formIdea = qs("#formIdea");
+  var ideaTitle = qs("#ideaTitle");
+  var ideaDesc = qs("#ideaDesc");
+  var ideaList = qs("#ideaList");
+  var ideaSearch = qs("#ideaSearch");
+
+  // Top actions
+  var btnQuickAddDemo = qs("#btnQuickAddDemo");
+  var btnExport = qs("#btnExport");
+  var btnExport2 = qs("#btnExport2");
+  var fileImport = qs("#fileImport");
+  var fileImport2 = qs("#fileImport2");
+  var btnClearAll = qs("#btnClearAll");
+
+  // ======= render helpers =======
+  function renderStats() {
+    if (!statsEl) return;
+    var items = [
+      { k: "主題", v: db.themes.length },
+      { k: "模組", v: db.modules.length },
+      { k: "文案", v: db.copies.length },
+      { k: "工具", v: db.tools.length },
+      { k: "影片", v: db.videos.length },
+      { k: "發佈套件", v: db.publishes.length },
+      { k: "課程", v: db.courses.length },
+      { k: "發想", v: db.ideas.length }
+    ];
+    var html = "";
+    for (var i = 0; i < items.length; i++) {
+      html += '<div class="stat"><div class="statNum">' + items[i].v + '</div><div class="statLabel">' + escapeHtml(items[i].k) + '</div></div>';
+    }
+    statsEl.innerHTML = html;
+  }
+
+  function fillSelect(sel, list, optFn, emptyLabel) {
+    if (!sel) return;
+    var html = "";
+    if (emptyLabel) html += '<option value="">' + escapeHtml(emptyLabel) + "</option>";
+    for (var i = 0; i < list.length; i++) {
+      var o = optFn(list[i], i);
+      html += '<option value="' + escapeHtml(o.value) + '">' + escapeHtml(o.label) + "</option>";
+    }
+    sel.innerHTML = html;
+  }
+
+  function currentThemeQuery() {
+    var q = safeText(themeSearch && themeSearch.value).trim();
+    return q;
+  }
+
+  function sortThemes(arr) {
+    var mode = themeSort ? themeSort.value : "new";
+    var out = arr.slice();
+    out.sort(function (a, b) {
+      if (mode === "old") return (a.createdAt > b.createdAt) ? 1 : -1;
+      if (mode === "az") return (a.sentence || "").localeCompare(b.sentence || "");
+      // new default
+      return (a.createdAt < b.createdAt) ? 1 : -1;
+    });
+    return out;
+  }
+
+  function renderThemeList() {
+    if (!themeList) return;
+    var q = currentThemeQuery();
+    var items = db.themes.slice();
+    if (q) {
+      var nq = norm(q);
+      items = items.filter(function (t) {
+        var bag = norm((t.id || "") + " " + (t.sentence || "") + " " + (t.pain || "") + " " + (t.scenario || ""));
+        return bag.indexOf(nq) >= 0;
+      });
+    }
+    items = sortThemes(items);
+
+    if (!items.length) {
+      themeList.innerHTML = '<div class="muted">尚無主題。你可以先按「加入示範資料」或新增一筆。</div>';
+      return;
+    }
+
+    var html = "";
+    for (var i = 0; i < items.length; i++) {
+      var t = items[i];
+      html += '<div class="item">';
+      html +=   '<div class="itemMain">';
+      html +=     '<div class="itemTitle">' + escapeHtml(t.sentence || "(無標題)") + '</div>';
+      html +=     '<div class="itemMeta muted">ID：' + escapeHtml(t.id) +
+                 ' · 情境：' + escapeHtml(t.scenario || "-") +
+                 (t.video ? ' · 影片：<a href="' + escapeHtml(t.video) + '" target="_blank" rel="noopener">開啟</a>' : "") +
+                 '</div>';
+      if (t.pain) html += '<div class="muted">卡點：' + escapeHtml(t.pain) + '</div>';
+      if (t.toolHint) html += '<div class="muted">工具提示：' + escapeHtml(t.toolHint) + '</div>';
+      html +=   '</div>';
+      html +=   '<div class="itemActions">';
+      html +=     '<button class="btn small ghost" data-act="copyTheme" data-id="' + escapeHtml(t.id) + '">複製</button>';
+      html +=     '<button class="btn small danger" data-act="delTheme" data-id="' + escapeHtml(t.id) + '">刪除</button>';
+      html +=   '</div>';
+      html += '</div>';
+    }
+    themeList.innerHTML = html;
+  }
+
+  function renderToolList() {
+    if (!toolList) return;
+    var q = safeText(toolSearch && toolSearch.value).trim();
+    var items = db.tools.slice();
+    if (q) {
+      var nq = norm(q);
+      items = items.filter(function (t) {
+        var bag = norm((t.id || "") + " " + (t.name || "") + " " + (t.desc || ""));
+        return bag.indexOf(nq) >= 0;
+      });
+    }
+    items.sort(function (a, b) { return (a.createdAt < b.createdAt) ? 1 : -1; });
+
+    if (!items.length) {
+      toolList.innerHTML = '<div class="muted">尚無工具。</div>';
+      return;
+    }
+    var html = "";
+    for (var i = 0; i < items.length; i++) {
+      var t = items[i];
+      html += '<div class="item">';
+      html +=   '<div class="itemMain">';
+      html +=     '<div class="itemTitle">' + escapeHtml(t.name || "(未命名工具)") + '</div>';
+      html +=     '<div class="itemMeta muted">ID：' + escapeHtml(t.id) + '</div>';
+      if (t.desc) html += '<div class="muted prelike">' + escapeHtml(t.desc) + '</div>';
+      html +=   '</div>';
+      html +=   '<div class="itemActions">';
+      html +=     '<button class="btn small ghost" data-act="copyTool" data-id="' + escapeHtml(t.id) + '">複製</button>';
+      html +=     '<button class="btn small danger" data-act="delTool" data-id="' + escapeHtml(t.id) + '">刪除</button>';
+      html +=   '</div>';
+      html += '</div>';
+    }
+    toolList.innerHTML = html;
+  }
+
+  function renderModuleList() {
+    if (!moduleList) return;
+    var q = safeText(moduleSearch && moduleSearch.value).trim();
+    var filter = moduleFilterType ? moduleFilterType.value : "all";
+    var items = db.modules.slice();
+
+    if (filter !== "all") items = items.filter(function (m) { return m.type === filter; });
+
+    if (q) {
+      var nq = norm(q);
+      items = items.filter(function (m) {
+        var bag = norm((m.id || "") + " " + (m.title || "") + " " + (m.content || ""));
+        return bag.indexOf(nq) >= 0;
+      });
+    }
+    items.sort(function (a, b) { return (a.createdAt < b.createdAt) ? 1 : -1; });
+
+    if (!items.length) {
+      moduleList.innerHTML = '<div class="muted">尚無模組。</div>';
+      return;
+    }
+
+    var html = "";
+    for (var i = 0; i < items.length; i++) {
+      var m = items[i];
+      html += '<div class="item">';
+      html +=   '<div class="itemMain">';
+      html +=     '<div class="itemTitle">' + escapeHtml(m.title || "(未命名模組)") + ' <span class="tag">' + escapeHtml(m.type) + '</span></div>';
+      html +=     '<div class="itemMeta muted">ID：' + escapeHtml(m.id) + ' · 來源主題：' + escapeHtml(m.themeSentence || "-") + '</div>';
+      html +=     '<div class="muted prelike">' + escapeHtml(m.content || "") + '</div>';
+      html +=   '</div>';
+      html +=   '<div class="itemActions">';
+      html +=     '<button class="btn small ghost" data-act="copyModule" data-id="' + escapeHtml(m.id) + '">複製</button>';
+      html +=     '<button class="btn small danger" data-act="delModule" data-id="' + escapeHtml(m.id) + '">刪除</button>';
+      html +=   '</div>';
+      html += '</div>';
+    }
+    moduleList.innerHTML = html;
+  }
+
+  function renderCopyList() {
+    if (!copyList) return;
+    var q = safeText(copySearch && copySearch.value).trim();
+    var items = db.copies.slice();
+    if (q) {
+      var nq = norm(q);
+      items = items.filter(function (c) {
+        var bag = norm((c.id || "") + " " + (c.title || "") + " " + (c.series || "") + " " + (c.content || ""));
+        return bag.indexOf(nq) >= 0;
+      });
+    }
+    items.sort(function (a, b) { return (a.createdAt < b.createdAt) ? 1 : -1; });
+
+    if (!items.length) {
+      copyList.innerHTML = '<div class="muted">尚無文案。</div>';
+      return;
+    }
+
+    var html = "";
+    for (var i = 0; i < items.length; i++) {
+      var c = items[i];
+      html += '<div class="item">';
+      html +=   '<div class="itemMain">';
+      html +=     '<div class="itemTitle">' + escapeHtml(c.title || "(未命名文案)") + ' <span class="tag">' + escapeHtml(c.series || "-") + '</span></div>';
+      html +=     '<div class="itemMeta muted">ID：' + escapeHtml(c.id) + ' · ' + escapeHtml(c.createdAt ? c.createdAt.split("T")[0] : "") + '</div>';
+      html +=     '<div class="muted prelike">' + escapeHtml((c.content || "").slice(0, 240)) + (c.content && c.content.length > 240 ? "…" : "") + '</div>';
+      html +=   '</div>';
+      html +=   '<div class="itemActions">';
+      html +=     '<button class="btn small ghost" data-act="copyCopy" data-id="' + escapeHtml(c.id) + '">複製</button>';
+      html +=     '<button class="btn small danger" data-act="delCopy" data-id="' + escapeHtml(c.id) + '">刪除</button>';
+      html +=   '</div>';
+      html += '</div>';
+    }
+    copyList.innerHTML = html;
+  }
+
+  function renderInventory(panelType) {
+    if (!inventoryPanel) return;
+    var html = "";
+    if (panelType === "tools") {
+      if (!db.tools.length) { inventoryPanel.innerHTML = '<div class="muted">工具庫目前是空的。</div>'; return; }
+      var tools = db.tools.slice().sort(function (a, b) { return (a.createdAt < b.createdAt) ? 1 : -1; });
+      for (var i = 0; i < tools.length; i++) {
+        var t = tools[i];
+        html += '<div class="item">';
+        html +=   '<div class="itemMain">';
+        html +=     '<div class="itemTitle">' + escapeHtml(t.name) + '</div>';
+        html +=     '<div class="itemMeta muted">ID：' + escapeHtml(t.id) + '</div>';
+        html +=   '</div>';
+        html += '</div>';
+      }
+      inventoryPanel.innerHTML = html;
+      return;
+    }
+    if (panelType === "copies") {
+      if (!db.copies.length) { inventoryPanel.innerHTML = '<div class="muted">文案研究室目前是空的。</div>'; return; }
+      var copies = db.copies.slice().sort(function (a, b) { return (a.createdAt < b.createdAt) ? 1 : -1; });
+      for (var j = 0; j < copies.length; j++) {
+        var c = copies[j];
+        html += '<div class="item">';
+        html +=   '<div class="itemMain">';
+        html +=     '<div class="itemTitle">' + escapeHtml(c.title) + '</div>';
+        html +=     '<div class="itemMeta muted">' + escapeHtml(c.series || "-") + ' · ID：' + escapeHtml(c.id) + '</div>';
+        html +=   '</div>';
+        html += '</div>';
+      }
+      inventoryPanel.innerHTML = html;
+      return;
+    }
+    // videos default
+    if (!db.videos.length) { inventoryPanel.innerHTML = '<div class="muted">影片庫存目前是空的。</div>'; return; }
+    var vids = db.videos.slice().sort(function (a, b) { return (a.createdAt < b.createdAt) ? 1 : -1; });
+    for (var k = 0; k < vids.length; k++) {
+      var v = vids[k];
+      html += '<div class="item">';
+      html +=   '<div class="itemMain">';
+      html +=     '<div class="itemTitle">' + escapeHtml(v.title) + '</div>';
+      html +=     '<div class="itemMeta muted">' + escapeHtml(v.series || "-") + ' · ID：' + escapeHtml(v.id) +
+               ' · <a href="' + escapeHtml(v.url) + '" target="_blank" rel="noopener">開啟</a></div>';
+      html +=   '</div>';
+      html += '</div>';
+    }
+    inventoryPanel.innerHTML = html;
+  }
+
+  function renderPublishList() {
+    if (!publishList) return;
+    var q = safeText(publishSearch && publishSearch.value).trim();
+    var items = db.publishes.slice();
+    if (q) {
+      var nq = norm(q);
+      items = items.filter(function (p) {
+        var bag = norm((p.id || "") + " " + (p.themeSentence || "") + " " + (p.videoTitle || "") + " " + (p.toolName || "") + " " + (p.note || ""));
+        return bag.indexOf(nq) >= 0;
+      });
+    }
+    items.sort(function (a, b) { return (a.createdAt < b.createdAt) ? 1 : -1; });
+
+    if (!items.length) {
+      publishList.innerHTML = '<div class="muted">尚無發佈套件。</div>';
+      return;
+    }
+
+    var html = "";
+    for (var i = 0; i < items.length; i++) {
+      var p = items[i];
+      html += '<div class="item">';
+      html +=   '<div class="itemMain">';
+      html +=     '<div class="itemTitle">' + escapeHtml(p.themeSentence || "(未命名主題)") + '</div>';
+      html +=     '<div class="itemMeta muted">套件ID：' + escapeHtml(p.id) + '</div>';
+      html +=     '<div class="muted">影片：' + escapeHtml(p.videoTitle || "-") +
+               (p.videoUrl ? ' · <a href="' + escapeHtml(p.videoUrl) + '" target="_blank" rel="noopener">開啟</a>' : "") + '</div>';
+      html +=     '<div class="muted">工具：' + escapeHtml(p.toolName || "-") + '</div>';
+      if (p.moduleTitle) html += '<div class="muted">模組：' + escapeHtml(p.moduleTitle) + '</div>';
+      if (p.copyTitle) html += '<div class="muted">文案：' + escapeHtml(p.copyTitle) + '</div>';
+      if (p.note) html += '<div class="muted">備註：' + escapeHtml(p.note) + '</div>';
+
+      // 一鍵輸出「發片小抄」
+      var cheat = [];
+      cheat.push("【發佈套件】" + (p.themeSentence || ""));
+      cheat.push("影片：" + (p.videoTitle || "") + (p.videoUrl ? "（" + p.videoUrl + "）" : ""));
+      cheat.push("工具：" + (p.toolName || ""));
+      if (p.moduleTitle) cheat.push("模組：" + p.moduleTitle);
+      if (p.copyTitle) cheat.push("文案：" + p.copyTitle);
+      if (p.note) cheat.push("備註：" + p.note);
+      var cheatText = escapeHtml(cheat.join("\n"));
+
+      html +=     '<div class="muted prelike">' + cheatText.split("\n").join("<br/>") + '</div>';
+      html +=   '</div>';
+      html +=   '<div class="itemActions">';
+      html +=     '<button class="btn small ghost" data-act="copyPublish" data-id="' + escapeHtml(p.id) + '">複製小抄</button>';
+      html +=     '<button class="btn small danger" data-act="delPublish" data-id="' + escapeHtml(p.id) + '">刪除</button>';
+      html +=   '</div>';
+      html += '</div>';
+    }
+    publishList.innerHTML = html;
+  }
+
+  function renderCourseList() {
+    if (!courseList) return;
+    var q = safeText(courseSearch && courseSearch.value).trim();
+    var items = db.courses.slice();
+    if (q) {
+      var nq = norm(q);
+      items = items.filter(function (c) {
+        var bag = norm((c.id || "") + " " + (c.name || "") + " " + (c.desc || ""));
+        return bag.indexOf(nq) >= 0;
+      });
+    }
+    items.sort(function (a, b) { return (a.createdAt < b.createdAt) ? 1 : -1; });
+
+    if (!items.length) {
+      courseList.innerHTML = '<div class="muted">尚無課程。</div>';
+      return;
+    }
+
+    var html = "";
+    for (var i = 0; i < items.length; i++) {
+      var c = items[i];
+      var moduleCount = (c.moduleIds && c.moduleIds.length) ? c.moduleIds.length : 0;
+      html += '<div class="item">';
+      html +=   '<div class="itemMain">';
+      html +=     '<div class="itemTitle">' + escapeHtml(c.name || "(未命名課程)") + ' <span class="tag">' + moduleCount + ' 模組</span></div>';
+      html +=     '<div class="itemMeta muted">ID：' + escapeHtml(c.id) + '</div>';
+      if (c.desc) html += '<div class="muted prelike">' + escapeHtml(c.desc) + '</div>';
+
+      // 列出模組名稱
+      if (moduleCount) {
+        var names = [];
+        for (var j = 0; j < c.moduleIds.length; j++) {
+          var mid = c.moduleIds[j];
+          var m = findById(db.modules, mid);
+          if (m) names.push(m.title);
+        }
+        if (names.length) html += '<div class="muted">已加入：' + escapeHtml(names.join("、")) + '</div>';
+      }
+      html +=   '</div>';
+      html +=   '<div class="itemActions">';
+      html +=     '<button class="btn small ghost" data-act="copyCourse" data-id="' + escapeHtml(c.id) + '">複製課綱</button>';
+      html +=     '<button class="btn small danger" data-act="delCourse" data-id="' + escapeHtml(c.id) + '">刪除</button>';
+      html +=   '</div>';
+      html += '</div>';
+    }
+    courseList.innerHTML = html;
+  }
+
+  function renderIdeaList() {
+    if (!ideaList) return;
+    var q = safeText(ideaSearch && ideaSearch.value).trim();
+    var items = db.ideas.slice();
+    if (q) {
+      var nq = norm(q);
+      items = items.filter(function (it) {
+        var bag = norm((it.id || "") + " " + (it.title || "") + " " + (it.desc || ""));
+        return bag.indexOf(nq) >= 0;
+      });
+    }
+    items.sort(function (a, b) { return (a.createdAt < b.createdAt) ? 1 : -1; });
+
+    if (!items.length) {
+      ideaList.innerHTML = '<div class="muted">尚無發想。</div>';
+      return;
+    }
+
+    var html = "";
+    for (var i = 0; i < items.length; i++) {
+      var it = items[i];
+      html += '<div class="item">';
+      html +=   '<div class="itemMain">';
+      html +=     '<div class="itemTitle">' + escapeHtml(it.title || "(未命名)") + '</div>';
+      html +=     '<div class="itemMeta muted">ID：' + escapeHtml(it.id) + '</div>';
+      if (it.desc) html += '<div class="muted prelike">' + escapeHtml(it.desc) + '</div>';
+      html +=   '</div>';
+      html +=   '<div class="itemActions">';
+      html +=     '<button class="btn small ghost" data-act="copyIdea" data-id="' + escapeHtml(it.id) + '">複製</button>';
+      html +=     '<button class="btn small danger" data-act="delIdea" data-id="' + escapeHtml(it.id) + '">刪除</button>';
+      html +=   '</div>';
+      html += '</div>';
+    }
+    ideaList.innerHTML = html;
+  }
+
+  function findById(arr, id) {
+    for (var i = 0; i < arr.length; i++) if (arr[i].id === id) return arr[i];
+    return null;
+  }
+  function removeById(arr, id) {
+    for (var i = 0; i < arr.length; i++) {
+      if (arr[i].id === id) { arr.splice(i, 1); return true; }
+    }
+    return false;
+  }
+
+  // ======= select options sync =======
+  function syncSelects() {
+    // Themes
+    var themeOpts = db.themes.slice().sort(function (a, b) { return (a.createdAt < b.createdAt) ? 1 : -1; })
+      .map(function (t) {
+        return { value: t.id, label: (t.sentence || t.id) };
+      });
+    fillSelect(matchTheme, themeOpts, function (o) { return o; }, "請選主題");
+    fillSelect(spellTheme, themeOpts, function (o) { return o; }, "請選主題");
+    fillSelect(copySpellTheme, themeOpts, function (o) { return o; }, "請選主題");
+    fillSelect(publishTheme, themeOpts, function (o) { return o; }, "請選主題");
+
+    // Tools
+    var toolOpts = db.tools.slice().sort(function (a, b) { return (a.createdAt < b.createdAt) ? 1 : -1; })
+      .map(function (t) {
+        return { value: t.id, label: (t.name || t.id) };
+      });
+    fillSelect(publishTool, toolOpts, function (o) { return o; }, "請選工具");
+
+    // Videos
+    var videoOpts = db.videos.slice().sort(function (a, b) { return (a.createdAt < b.createdAt) ? 1 : -1; })
+      .map(function (v) {
+        return { value: v.id, label: (v.title || v.id) };
+      });
+    fillSelect(publishVideo, videoOpts, function (o) { return o; }, "請選影片");
+
+    // Modules (optional)
+    var moduleOpts = db.modules.slice().sort(function (a, b) { return (a.createdAt < b.createdAt) ? 1 : -1; })
+      .map(function (m) { return { value: m.id, label: (m.title || m.id) }; });
+    fillSelect(publishModule, moduleOpts, function (o) { return o; }, "（不選）");
+
+    // Copies (optional)
+    var copyOpts = db.copies.slice().sort(function (a, b) { return (a.createdAt < b.createdAt) ? 1 : -1; })
+      .map(function (c) { return { value: c.id, label: (c.title || c.id) }; });
+    fillSelect(publishCopy, copyOpts, function (o) { return o; }, "（不選）");
+
+    // Courses
+    var courseOpts = db.courses.slice().sort(function (a, b) { return (a.createdAt < b.createdAt) ? 1 : -1; })
+      .map(function (c) { return { value: c.id, label: (c.name || c.id) }; });
+    fillSelect(assignCourse, courseOpts, function (o) { return o; }, "請選課程");
+
+    // Assign module
+    fillSelect(assignModule, moduleOpts, function (o) { return o; }, "請選模組");
+  }
+
+  // ======= navigation =======
+  function openView(name) {
+    for (var i = 0; i < navItems.length; i++) {
+      var b = navItems[i];
+      var ok = b.getAttribute("data-view") === name;
+      if (ok) b.classList.add("active"); else b.classList.remove("active");
+    }
+    for (var j = 0; j < views.length; j++) {
+      var v = views[j];
+      var id = v.getAttribute("id") || "";
+      var ok2 = id === ("view-" + name);
+      if (ok2) v.classList.add("active"); else v.classList.remove("active");
+    }
+    // 每次切頁都刷新
     renderAll();
-  };
-  r.readAsText(file);
-}
+  }
 
-// ---------- demo seed ----------
-function seedDemo(){
-  const themes = db.themes();
-  if (themes.length) { toast("已經有資料了"); return; }
+  // ======= seed demo =======
+  function addDemo() {
+    if (db.themes.length || db.tools.length || db.videos.length) {
+      toast("你已經有資料了，示範不再重複加入");
+      return;
+    }
 
-  const t1 = {
-    id: "theme-desire-money",
-    sentence: "無欲則剛｜零用錢×需要／想要×選擇力",
-    pain: "孩子一遇到想要就失控、忍不住、停不下來",
-    scenario: "超市/零用錢/想要vs需要/練習「等一下」",
-    video: "",
-    toolHint: "need-want口袋卡、超市30秒踩煞車、我等一下計分",
-    createdAt: nowISO()
-  };
+    var t1 = {
+      id: "theme-desire-money",
+      sentence: "無欲則剛｜零用錢×需要／想要×選擇力",
+      pain: "孩子一遇到想要就失控、忍不住、停不下來",
+      scenario: "超市現場｜看到想買的東西",
+      video: "",
+      toolHint: "需要/想要口袋卡、紅綠燈30秒踩煞車、我等一下計分"
+    };
 
-  const t2 = {
-    id: "theme-soft-talk",
-    sentence: "柔軟而有力量｜感恩×善解×溝通力",
-    pain: "一開口就硬、越講越僵、氣氛卡住",
-    scenario: "親子衝突/伴侶誤會/一句話能不能變柔軟",
-    video: "",
-    toolHint: "心軟一下呼吸、善解卡、重來一句",
-    createdAt: nowISO()
-  };
-
-  db.setThemes([t1, t2]);
-
-  db.setTools([
-    {
+    var tool1 = {
       id: "tool-need-want-card",
       name: "需要/想要 口袋卡",
-      desc: "孩子想買時先摸口袋卡：三問『我想要什麼？我真的需要嗎？我可以等一下嗎？』",
+      desc: "孩子想買時，先問：\n1) 這是需要還是想要？\n2) 如果等一下，會不會更好？\n家長句子：『我不急著說不，我陪你把剎車踩一下。』",
       createdAt: nowISO()
-    },
-    {
+    };
+
+    var tool2 = {
       id: "tool-traffic-light-30s",
       name: "紅綠燈30秒踩煞車",
-      desc: "紅燈停：吸4吐6一次｜黃燈想：一句話說清楚想要｜綠燈選：先等一下或放回去",
+      desc: "紅燈：停一下（手摸胸口）\n黃燈：呼吸 4吸6吐 ×3\n綠燈：做選擇（買/不買/放回去/改天）\n加一句：『你不是被想要推著走，你在練選擇力。』",
       createdAt: nowISO()
-    },
-    {
-      id: "tool-soft-restart",
-      name: "重來一句（柔軟版）",
-      desc: "把硬話改柔：先承認+再說需求+給選擇。例：『我剛剛太急了，我想重來…』",
-      createdAt: nowISO()
-    }
-  ]);
+    };
 
-  db.setVideos([
-    {
-      id: "video-demo-001",
+    var v1 = {
+      id: "video-desire-money-01",
       title: "無欲則剛｜孩子學會等一下，選擇力就開始長出來",
       url: "https://example.com",
       series: "幸福教養",
       createdAt: nowISO()
+    };
+
+    db.themes.push(extend(t1, { createdAt: nowISO() }));
+    db.tools.push(tool1);
+    db.tools.push(tool2);
+    db.videos.push(v1);
+
+    saveDB(db);
+    toast("示範資料已加入");
+    renderAll();
+  }
+
+  function extend(a, b) {
+    for (var k in b) if (b.hasOwnProperty(k)) a[k] = b[k];
+    return a;
+  }
+
+  // ======= match =======
+  function doMatch(themeObj, strict) {
+    // strict: 0 多給 1 平衡 2 嚴格
+    var baseText = (themeObj.sentence || "") + " " + (themeObj.pain || "") + " " + (themeObj.scenario || "") + " " + (themeObj.toolHint || "");
+    // tool score
+    var bestTool = null, bestToolScore = -1;
+    for (var i = 0; i < db.tools.length; i++) {
+      var t = db.tools[i];
+      var s = scoreByOverlap(baseText, (t.name || "") + " " + (t.desc || ""));
+      if (s > bestToolScore) { bestToolScore = s; bestTool = t; }
     }
-  ]);
+    // module score
+    var bestModule = null, bestModuleScore = -1;
+    for (var j = 0; j < db.modules.length; j++) {
+      var m = db.modules[j];
+      var s2 = scoreByOverlap(baseText, (m.title || "") + " " + (m.content || ""));
+      if (s2 > bestModuleScore) { bestModuleScore = s2; bestModule = m; }
+    }
+    // copy score
+    var bestCopy = null, bestCopyScore = -1;
+    for (var k = 0; k < db.copies.length; k++) {
+      var c = db.copies[k];
+      var s3 = scoreByOverlap(baseText, (c.title || "") + " " + (c.content || ""));
+      if (s3 > bestCopyScore) { bestCopyScore = s3; bestCopy = c; }
+    }
 
-  toast("已加入示範資料");
-  refreshAllSelects();
-  renderAll();
-}
+    // strict gates
+    function pass(score) {
+      if (strict === 2) return score >= 2;
+      if (strict === 1) return score >= 1;
+      return score >= 0; // 活潑模式：都給
+    }
 
-// ---------- MATCH helpers ----------
-function tokenize(text){
-  const s = (text||"").toLowerCase();
-  const chunks = s
-    .replace(/[，。！？、（）【】「」『』：；\n\r\t]/g, " ")
-    .replace(/[^a-z0-9\u4e00-\u9fff ]/g, " ")
-    .split(/\s+/)
-    .filter(Boolean);
-  const han = (s.match(/[\u4e00-\u9fff]/g) || []);
-  return [...new Set([...chunks, ...han])];
-}
-
-function scoreItem(tokens, text){
-  const t = tokenize(text);
-  let score = 0;
-  tokens.forEach(k=>{
-    if(t.includes(k)) score += (k.length >= 2 ? 2 : 1);
-  });
-  return score;
-}
-
-function topMatches(theme, list, toTextFn, topN=5, strict=0){
-  const themeText = `${theme.sentence} ${theme.pain||""} ${theme.scenario||""} ${theme.toolHint||""}`;
-  const tokens = tokenize(themeText);
-
-  const scored = list.map(x=>{
-    const text = toTextFn(x);
-    return {item:x, score: scoreItem(tokens, text)};
-  }).sort((a,b)=>b.score-a.score);
-
-  const min = strict===2 ? 6 : strict===1 ? 3 : 1;
-  const filtered = scored.filter(s=>s.score >= min);
-
-  return (filtered.length ? filtered : scored.slice(0, topN)).slice(0, topN);
-}
-
-function matchAllForThemeDetailed(theme, strict=0){
-  const tools = db.tools();
-  const modules = db.modules();
-  const videos = db.videos();
-
-  const toolTop = topMatches(
-    theme,
-    tools,
-    (t)=>`${t.id} ${t.name} ${t.desc||""}`,
-    5,
-    strict
-  );
-
-  const modTop = topMatches(
-    theme,
-    modules,
-    (m)=>{
-      const th = findTheme(m.themeId)?.sentence || "";
-      return `${m.id} ${m.title} ${th} ${(m.core||[]).join(" ")} ${(m.gameplay||[]).join(" ")} ${(m.prompts?.commentLine||"")}`;
-    },
-    5,
-    strict
-  );
-
-  const videoTop = topMatches(
-    theme,
-    videos,
-    (v)=>`${v.id} ${v.title} ${v.url} ${v.series||""}`,
-    3,
-    strict
-  );
-
-  const bestMod = modTop[0]?.item || null;
-  const commentLine =
-    bestMod?.prompts?.commentLine ||
-    `留言一句：今天我做了『${theme.sentence.includes("｜") ? theme.sentence.split("｜")[0] : "小練習"}』，我替自己加了一點點選擇力。`;
-
-  const parentLines = bestMod?.prompts?.parentLines?.length
-    ? bestMod.prompts.parentLines
-    : ["我不急著說不，我先陪你把想要說清楚。", "我們先做一個小決定：要不要先等一下？"];
-
-  const childLines = bestMod?.prompts?.childLines?.length
-    ? bestMod.prompts.childLines
-    : ["我想要，但我可以等一下。", "我先放回去，等一下再決定。"];
-
-  const toolText = toolTop.length
-    ? toolTop.map((x,i)=>`${i+1}. ${x.item.name}（${x.item.id}） score=${x.score}`).join("\n")
-    : "（目前沒有工具）";
-
-  const modText = modTop.length
-    ? modTop.map((x,i)=>`${i+1}. ${x.item.title}（${x.item.id}） score=${x.score}`).join("\n")
-    : "（目前沒有模組：去咒語生成器先生一個！）";
-
-  const videoText = videoTop.length
-    ? videoTop.map((x,i)=>`${i+1}. ${x.item.title}（${x.item.id}） score=${x.score}`).join("\n")
-    : "（目前沒有影片：請到庫存區新增，或在主題內填影片連結）";
-
-  const text = [
-    `【主題】${theme.sentence}`,
-    theme.pain ? `【卡點】${theme.pain}` : "",
-    theme.scenario ? `【情境】${theme.scenario}` : "",
-    ``,
-    `🎬【推薦影片 Top】`,
-    videoText,
-    ``,
-    `🎒【推薦工具 Top】`,
-    toolText,
-    ``,
-    `🧩【推薦模組 Top】`,
-    modText,
-    ``,
-    `🗨️【留言引導一句】`,
-    commentLine,
-    ``,
-    `🗣️【可說出口句（家長）】`,
-    `- ${parentLines.join("\n- ")}`,
-    ``,
-    `🧒【可說出口句（孩子）】`,
-    `- ${childLines.join("\n- ")}`,
-    ``,
-    `✨【一秒定錨】`,
-    `今天不是要你「忍住」，是要你「多一秒選擇」。`
-  ].filter(Boolean).join("\n");
-
-  return { theme, strict, toolTop, modTop, videoTop, commentLine, parentLines, childLines, text };
-}
-
-// ---------- create placeholders for pack ----------
-function ensureToolFromMatch(theme, toolTop){
-  const best = toolTop?.[0]?.item || null;
-  if(best) return best.id;
-
-  const hint = (theme.toolHint || "").trim() || "（尚未填工具提示）";
-  const id = uid("tool");
-  const item = {
-    id,
-    name: `占位工具｜${theme.sentence.split("｜")[0] || "工具"}`,
-    desc: `（自動補位）建議工具提示：${hint}\n你可以到「工具庫」補齊更精準的工具說明。`,
-    createdAt: nowISO()
-  };
-  const list = db.tools();
-  list.unshift(item);
-  db.setTools(list);
-  return id;
-}
-
-function ensureVideoFromMatch(theme, videoTop){
-  const url = (theme.video || "").trim();
-  if(url){
-    const hit = db.videos().find(v => (v.url||"").trim() === url);
-    if(hit) return hit.id;
-
-    const id = uid("video");
-    const item = {
-      id,
-      title: `（占位影片）${theme.sentence}`,
-      url,
-      series: "幸福教養",
+    var result = {
+      themeId: themeObj.id,
+      themeSentence: themeObj.sentence,
+      tool: pass(bestToolScore) ? bestTool : null,
+      module: pass(bestModuleScore) ? bestModule : null,
+      copy: pass(bestCopyScore) ? bestCopy : null,
+      scores: { tool: bestToolScore, module: bestModuleScore, copy: bestCopyScore },
       createdAt: nowISO()
     };
-    const list = db.videos();
-    list.unshift(item);
-    db.setVideos(list);
-    return id;
+    return result;
   }
 
-  const best = videoTop?.[0]?.item || null;
-  if(best) return best.id;
+  function renderMatch(result) {
+    if (!matchResult) return;
+    if (!result) {
+      matchResult.textContent = "尚未配對。";
+      if (btnMatchToPublish) btnMatchToPublish.disabled = true;
+      if (btnOpenPublishLabFromMatch) btnOpenPublishLabFromMatch.disabled = true;
+      return;
+    }
 
-  const id = uid("video");
-  const item = {
-    id,
-    title: `（占位影片）${theme.sentence}`,
-    url: "",
-    series: "幸福教養",
-    createdAt: nowISO()
-  };
-  const list = db.videos();
-  list.unshift(item);
-  db.setVideos(list);
-  return id;
-}
+    var lines = [];
+    lines.push("✅ 主題：" + (result.themeSentence || result.themeId));
+    if (result.tool) lines.push("🧰 工具推薦：" + result.tool.name + "（分數 " + result.scores.tool + "）");
+    else lines.push("🧰 工具推薦：目前找不到相近工具（先去工具庫存一筆）");
 
-function pickModuleIdFromMatch(modTop){
-  const best = modTop?.[0]?.item || null;
-  return best ? best.id : "";
-}
+    if (result.module) lines.push("🧩 模組推薦：" + result.module.title + "（分數 " + result.scores.module + "）");
+    else lines.push("🧩 模組推薦：目前找不到相近模組（可用咒語生成器先生成）");
 
-// ---------- view: THEME LAB ----------
-let lastMatch = null;
+    if (result.copy) lines.push("✍️ 文案推薦：" + result.copy.title + "（分數 " + result.scores.copy + "）");
+    else lines.push("✍️ 文案推薦：目前找不到相近文案（可用文案咒語包先生成模板）");
 
-function bindThemeLab(){
-  $("#formTheme").addEventListener("submit", (e)=>{
+    lines.push("");
+    lines.push("下一步：按「把配對結果 → 一鍵建立發佈套件」");
+
+    matchResult.textContent = lines.join("\n");
+    if (btnMatchToPublish) btnMatchToPublish.disabled = false;
+    if (btnOpenPublishLabFromMatch) btnOpenPublishLabFromMatch.disabled = false;
+  }
+
+  // ======= spell generator =======
+  function genModuleSpell(themeObj, type, version, flavor) {
+    var sentence = themeObj.sentence || "";
+    var pain = themeObj.pain || "";
+    var scenario = themeObj.scenario || "";
+    flavor = safeText(flavor);
+
+    // 模組結構（可陪伴式、遊戲化、直覺式）
+    var lines = [];
+    lines.push("【可陪伴式模組設計｜" + type + "｜" + safeText(version || "v1") + "】");
+    lines.push("主題一句：" + sentence);
+    if (pain) lines.push("觀眾卡點：" + pain);
+    if (scenario) lines.push("情境：" + scenario);
+    if (flavor) lines.push("風格：" + flavor);
+    lines.push("");
+
+    if (type === "A") {
+      lines.push("✅ 核心練習：踩煞車＋選擇力（欲望/金錢版本）");
+      lines.push("1) 觸發瞬間：我想要（看到/想到/別人有）");
+      lines.push("2) 30秒踩煞車：手摸胸口＋4吸6吐×3（紅→黃→綠）");
+      lines.push("3) 需要/想要判斷：這是『現在必須』還是『現在想要』？");
+      lines.push("4) 三選一：A買 / B不買 / C放回去改天（孩子自己說出來）");
+      lines.push("5) 回饋遊戲化：");
+      lines.push("   - 『我等一下』+1（每次成功踩煞車就得分）");
+      lines.push("   - 連續天數：今天踩煞車了嗎？");
+      lines.push("   - 徽章：『我把想要放回去』、『我等一下大師』");
+      lines.push("6) 親子一句話（不說教）：");
+      lines.push("   - 家長：『我不急著說不，我陪你把剎車踩一下。』");
+      lines.push("   - 孩子：『我可以等一下，再做選擇。』");
+      lines.push("");
+      lines.push("🔁 可延伸主題：零食/3C/遊戲時間/人際衝動/情緒爆衝");
+    } else {
+      lines.push("✅ 核心練習：柔軟彈性＋感恩善解溝通力");
+      lines.push("1) 觸發瞬間：起衝突（誤會/被頂嘴/不配合）");
+      lines.push("2) 30秒軟化：放慢語速＋先說感受（不下判斷）");
+      lines.push("3) 善解一句：『我猜你是…（累/急/怕/想要被看見）』");
+      lines.push("4) 邊界一句：『我們可以…，但我們不會…』");
+      lines.push("5) 感恩回饋：每天收集 1 個『謝謝你』瞬間");
+      lines.push("6) 回饋遊戲化：");
+      lines.push("   - 『關係軟一點』+1（每次先善解再講規則）");
+      lines.push("   - 徽章：『先抱住再說』、『善解翻譯官』、『彈性溝通王』");
+      lines.push("7) 親子一句話（不說教）：");
+      lines.push("   - 大人：『我先站穩，再把話說清楚。』");
+      lines.push("   - 孩子：『我可以好好說，不用硬碰硬。』");
+      lines.push("");
+      lines.push("🔁 可延伸主題：手足衝突/作業拉扯/睡覺拖延/伴侶對話/師生互動");
+    }
+
+    lines.push("");
+    lines.push("📌 留言引導（不暴露隱私）：");
+    lines.push("「今天你/孩子有沒有成功『等一下』或『先善解』一次？留言：+1」");
+    return lines.join("\n");
+  }
+
+  // ======= copy spell generator =======
+  function genCopyTemplate(themeObj, series, ctaTone) {
+    var sentence = themeObj.sentence || "";
+    var pain = themeObj.pain || "";
+    var scenario = themeObj.scenario || "";
+    var toolHint = themeObj.toolHint || "";
+    var seriesName = safeText(series);
+
+    var cta = safeText(ctaTone).trim();
+    if (!cta) cta = "回主頁領工具｜每週更新｜把心站穩，活出自在幸福感";
+
+    var lines = [];
+    lines.push("【文案咒語包｜" + seriesName + "】");
+    lines.push("主題一句：" + sentence);
+    if (pain) lines.push("觀眾卡點：" + pain);
+    if (scenario) lines.push("情境：" + scenario);
+    lines.push("");
+
+    // Hook / Promise / Body / CTA
+    lines.push("A. Hook（3–15 秒）");
+    if (seriesName === "幸福教養") {
+      lines.push("你有沒有發現——孩子不是故意失控，是『想要一來，剎車還沒裝好』。");
+    } else if (seriesName === "詩詞人生") {
+      lines.push("有一首詩，明明在寫景，卻把人的心寫得通透。");
+    } else if (seriesName === "腦神經科學") {
+      lines.push("你以為你在『忍』，其實是你的前額葉在跟杏仁核拔河。");
+    } else if (seriesName === "人生感悟") {
+      lines.push("有些改變，不靠努力，是靠『停一下』。");
+    } else {
+      lines.push("小腦袋今天學一招：遇到想要，先等一下再決定！");
+    }
+    lines.push("");
+
+    lines.push("B. 承諾（你會得到什麼）");
+    if (seriesName === "幸福教養") {
+      lines.push("這集不教你管孩子，我帶你用一個『不說教的工具』，陪孩子把剎車系統裝回來。");
+    } else if (seriesName === "詩詞人生") {
+      lines.push("我會用詩的背景＋作者心境＋心理學/腦科學視角，帶你把這首詩讀成自己的力量。");
+    } else if (seriesName === "腦神經科學") {
+      lines.push("我用最白話、最好笑的方式，讓你秒懂：為什麼你會衝動？以及怎麼『踩煞車』。");
+    } else if (seriesName === "人生感悟") {
+      lines.push("我想陪你把『卡住』變成『看懂』，把『焦慮』變成『選擇』。");
+    } else {
+      lines.push("你會拿到一張小卡：需要/想要＋30秒剎車，回家就能玩。");
+    }
+    lines.push("");
+
+    lines.push("C. 正文（請依系列套內容）");
+    if (seriesName === "幸福教養") {
+      lines.push("✅ 1) 完整故事（親子/超市/零用錢）");
+      lines.push("（把你的故事原文貼上，保留細節：孩子怎麼說、怎麼猶豫、怎麼放回去…）");
+      lines.push("");
+      lines.push("✅ 2) 心理學（不說教）");
+      lines.push("- 欲望不是壞，是訊號；重點是『能不能等一下』。");
+      lines.push("");
+      lines.push("✅ 3) 腦神經科學（親民版）");
+      lines.push("- 前額葉=剎車；杏仁核=警報；練習就是在幫剎車長肌肉。");
+      lines.push("");
+      lines.push("✅ 4) 好用工具（要可落地）");
+      lines.push("- 工具：需要/想要口袋卡 + 紅綠燈30秒踩煞車 + 『我等一下』+1");
+      if (toolHint) lines.push("- 你這集工具提示：" + toolHint);
+      lines.push("");
+      lines.push("✅ 5) 留言互動（社群感）");
+      lines.push("請留言：今天你家有沒有『等一下』成功一次？ +1");
+      lines.push("");
+      lines.push("（全文≥2000字以上可在這段自然擴寫：多兩個情境例子＋一句家長台詞庫）");
+    } else if (seriesName === "詩詞人生") {
+      lines.push("✅ 1) 作者介紹（生平/處境）");
+      lines.push("✅ 2) 詩詞背景（寫作脈絡）");
+      lines.push("✅ 3) 全詩全文（完整貼上）");
+      lines.push("✅ 4) 心理學/腦科學觀點（用詩照見自己）");
+      lines.push("✅ 5) 生活練習（1個小練習）");
+    } else if (seriesName === "腦神經科學") {
+      lines.push("✅ 1) 一個日常爆衝場景（幽默）");
+      lines.push("✅ 2) 腦內角色：杏仁核/前額葉/多巴胺（比喻說人話）");
+      lines.push("✅ 3) 30秒工具：停一下＋呼吸＋一句自我指令");
+      lines.push("✅ 4) 小挑戰：今天『剎車』一次就算贏");
+    } else if (seriesName === "人生感悟") {
+      lines.push("✅ 1) 一個人生瞬間（故事/感悟）");
+      lines.push("✅ 2) 轉折：看懂自己在追什麼/怕什麼");
+      lines.push("✅ 3) 一個練習：停一下、再選一次");
+    } else {
+      lines.push("✅ 1) 小故事（孩子聽得懂）");
+      lines.push("✅ 2) 一句咒語（孩子可跟讀）");
+      lines.push("✅ 3) 遊戲：今天『等一下』成功幾次？");
+    }
+    lines.push("");
+
+    lines.push("D. CTA（導到主頁）");
+    lines.push(cta);
+
+    return lines.join("\n");
+  }
+
+  // ======= events =======
+  // nav
+  for (var i = 0; i < navItems.length; i++) {
+    navItems[i].addEventListener("click", function (e) {
+      var name = this.getAttribute("data-view");
+      if (name) openView(name);
+    });
+  }
+
+  // search triggers
+  if (themeSearch) themeSearch.addEventListener("input", renderThemeList);
+  if (themeSort) themeSort.addEventListener("change", renderThemeList);
+  if (toolSearch) toolSearch.addEventListener("input", renderToolList);
+  if (moduleSearch) moduleSearch.addEventListener("input", renderModuleList);
+  if (moduleFilterType) moduleFilterType.addEventListener("change", renderModuleList);
+  if (copySearch) copySearch.addEventListener("input", renderCopyList);
+  if (publishSearch) publishSearch.addEventListener("input", renderPublishList);
+  if (courseSearch) courseSearch.addEventListener("input", renderCourseList);
+  if (ideaSearch) ideaSearch.addEventListener("input", renderIdeaList);
+
+  // theme add
+  if (formTheme) formTheme.addEventListener("submit", function (e) {
     e.preventDefault();
-    const id = ($("#themeId").value || "").trim() || uid("theme");
-    const sentence = ($("#themeSentence").value || "").trim();
-    if(!sentence){ toast("主題句必填"); return; }
+    var id = safeText(themeId.value).trim();
+    if (!id) id = uid("theme");
+    var sentence = safeText(themeSentence.value).trim();
+    if (!sentence) { toast("主題一句必填"); return; }
 
-    const item = {
-      id,
-      sentence,
-      pain: ($("#themePain").value || "").trim(),
-      scenario: ($("#themeScenario").value || "").trim(),
-      video: ($("#themeVideo").value || "").trim(),
-      toolHint: ($("#themeToolHint").value || "").trim(),
+    var obj = {
+      id: id,
+      sentence: sentence,
+      pain: safeText(themePain.value).trim(),
+      scenario: safeText(themeScenario.value).trim(),
+      video: safeText(themeVideo.value).trim(),
+      toolHint: safeText(themeToolHint.value).trim(),
       createdAt: nowISO()
     };
-
-    const list = db.themes();
-    if(list.some(x=>x.id===id)){ toast("這個主題ID已存在"); return; }
-    list.unshift(item);
-    db.setThemes(list);
-
-    e.target.reset();
+    db.themes.push(obj);
+    saveDB(db);
     toast("主題已新增");
-    refreshAllSelects();
-    renderThemeList();
+    formTheme.reset();
+    renderAll();
   });
 
-  $("#themeSearch").addEventListener("input", renderThemeList);
-  $("#themeSort").addEventListener("change", renderThemeList);
+  // theme list delegation
+  if (themeList) themeList.addEventListener("click", function (e) {
+    var btn = e.target;
+    if (!btn || !btn.getAttribute) return;
+    var act = btn.getAttribute("data-act");
+    var id = btn.getAttribute("data-id");
+    if (!act || !id) return;
 
-  const btnToPack = $("#btnMatchToPublish");
-  const btnOpenPublish = $("#btnOpenPublishLabFromMatch");
+    if (act === "delTheme") {
+      if (!confirm("要刪除這個主題嗎？")) return;
+      removeById(db.themes, id);
+      saveDB(db);
+      toast("已刪除主題");
+      renderAll();
+    }
+    if (act === "copyTheme") {
+      var t = findById(db.themes, id);
+      if (!t) return;
+      var text = "【主題】" + (t.sentence || "") + "\n卡點：" + (t.pain || "-") + "\n情境：" + (t.scenario || "-") + "\n工具提示：" + (t.toolHint || "-");
+      copyToClipboard(text);
+    }
+  });
 
-  function setPackButtons(enabled){
-    if(btnToPack) btnToPack.disabled = !enabled;
-    if(btnOpenPublish) btnOpenPublish.disabled = !enabled;
-  }
-  setPackButtons(false);
-
-  $("#formMatch").addEventListener("submit", (e)=>{
+  // match
+  if (formMatch) formMatch.addEventListener("submit", function (e) {
     e.preventDefault();
-    const themeId = $("#matchTheme").value;
-    const strict = parseInt($("#matchStrict").value, 10) || 0;
-    const theme = findTheme(themeId);
-    if(!theme){ toast("請先建立主題"); return; }
-
-    lastMatch = matchAllForThemeDetailed(theme, strict);
-    $("#matchResult").textContent = lastMatch.text;
-    setPackButtons(true);
+    var tid = matchTheme.value;
+    var t = findById(db.themes, tid);
+    if (!t) { toast("請先選主題"); return; }
+    var strict = parseInt(matchStrict.value, 10) || 0;
+    var res = doMatch(t, strict);
+    db._lastMatch = res;
+    saveDB(db);
+    renderMatch(res);
     toast("配對完成");
   });
 
-  if(btnToPack){
-    btnToPack.addEventListener("click", ()=>{
-      if(!lastMatch?.theme){ toast("請先配對一次"); return; }
+  if (btnMatchToPublish) btnMatchToPublish.addEventListener("click", function () {
+    var res = db._lastMatch;
+    if (!res) { toast("尚未配對"); return; }
+    // 需要主題、影片、工具（影片可能空）
+    // 這裡：若主題有 video url 且影片庫沒對應，就幫它先建一筆影片庫存（可選）
+    var themeObj = findById(db.themes, res.themeId);
+    if (!themeObj) { toast("主題不存在"); return; }
 
-      const theme = lastMatch.theme;
-      const toolId = ensureToolFromMatch(theme, lastMatch.toolTop);
-      const videoId = ensureVideoFromMatch(theme, lastMatch.videoTop);
-      const moduleId = pickModuleIdFromMatch(lastMatch.modTop);
-
-      const note = `（由配對自動建立）${lastMatch.commentLine || ""}`.trim();
-
-      const item = {
-        id: uid("pack"),
-        themeId: theme.id,
-        videoId,
-        toolId,
-        moduleId,
-        copyId: "",
-        note,
+    // 影片：優先用庫存第一筆，或主題附帶連結
+    var videoObj = null;
+    if (db.videos.length) videoObj = db.videos[0];
+    if (!videoObj && themeObj.video) {
+      videoObj = {
+        id: uid("video"),
+        title: themeObj.sentence,
+        url: themeObj.video,
+        series: "幸福教養",
         createdAt: nowISO()
       };
+      db.videos.push(videoObj);
+    }
+    if (!videoObj) { toast("請先在庫存區新增一支影片"); return; }
 
-      const list = db.publishes();
-      list.unshift(item);
-      db.setPublishes(list);
+    // 工具：用配對結果，沒有就選第一筆
+    var toolObj = res.tool || (db.tools.length ? db.tools[0] : null);
+    if (!toolObj) { toast("請先在工具庫新增一個工具"); return; }
 
-      refreshAllSelects();
-      renderPublishList();
-      renderInventoryPanel();
-      renderToolList();
-
-      toast("已建立發佈套件");
-    });
-  }
-
-  if(btnOpenPublish){
-    btnOpenPublish.addEventListener("click", ()=>{
-      if(!lastMatch?.theme){ toast("請先配對一次"); return; }
-      setView("publishLab");
-    });
-  }
-}
-
-function renderThemeList(){
-  const q = byText($("#themeSearch").value);
-  const sort = $("#themeSort").value;
-  let list = db.themes();
-
-  list = list.filter(t=>{
-    const blob = `${t.id} ${t.sentence} ${t.pain} ${t.scenario} ${t.toolHint}`.toLowerCase();
-    return !q || blob.includes(q);
-  });
-
-  if(sort==="az"){
-    list = [...list].sort((a,b)=>a.sentence.localeCompare(b.sentence));
-  }else if(sort==="old"){
-    list = [...list].sort((a,b)=>(a.createdAt||"").localeCompare(b.createdAt||""));
-  }else{
-    list = [...list].sort((a,b)=>(b.createdAt||"").localeCompare(a.createdAt||""));
-  }
-
-  const box = $("#themeList");
-  box.innerHTML = "";
-  if(!list.length){
-    box.innerHTML = `<div class="item muted">目前沒有主題（或搜尋不到）。</div>`;
-    return;
-  }
-
-  list.forEach(t=>{
-    const meta = [t.id, t.createdAt ? new Date(t.createdAt).toLocaleString() : ""];
-    const body = [
-      t.pain ? `卡點：${t.pain}` : "",
-      t.scenario ? `情境：${t.scenario}` : "",
-      t.video ? `影片：${t.video}` : "",
-      t.toolHint ? `工具：${t.toolHint}` : ""
-    ].filter(Boolean).join("\n");
-
-    const bMatch = btn("配對推薦", ()=>{
-      const strict = 0;
-      lastMatch = matchAllForThemeDetailed(t, strict);
-      $("#matchTheme").value = t.id;
-      $("#matchStrict").value = "0";
-      $("#matchResult").textContent = lastMatch.text;
-
-      const btnToPack = $("#btnMatchToPublish");
-      const btnOpenPublish = $("#btnOpenPublishLabFromMatch");
-      if(btnToPack) btnToPack.disabled = false;
-      if(btnOpenPublish) btnOpenPublish.disabled = false;
-
-      toast("已產出配對結果（可一鍵建立發佈套件）");
-    });
-
-    const bCopy = btn("複製摘要", ()=>{
-      const text = `【主題】${t.sentence}\n【卡點】${t.pain||""}\n【情境】${t.scenario||""}\n【影片】${t.video||""}\n【工具】${t.toolHint||""}\n【ID】${t.id}`;
-      copyToClipboard(text);
-    });
-
-    const bDel = btn("刪除", ()=>{
-      if(!confirm("刪除主題？（不會刪除已生成的模組）")) return;
-      db.setThemes(db.themes().filter(x=>x.id!==t.id));
-      toast("已刪除");
-      refreshAllSelects();
-      renderAll();
-    }, "iconBtn danger");
-
-    box.appendChild(itemShell({
-      title: t.sentence,
-      metaLines: meta,
-      body,
-      buttons:[bMatch, bCopy, bDel]
-    }));
-  });
-}
-
-// ---------- SPELL GENERATOR (modules) ----------
-function bindSpellLab(){
-  $("#btnOpenModuleLab").addEventListener("click", ()=>setView("moduleLab"));
-
-  $("#formSpell").addEventListener("submit", (e)=>{
-    e.preventDefault();
-    const themeId = $("#spellTheme").value;
-    const type = ($("input[name='spellType']:checked")?.value) || "A";
-    const version = ($("#spellVersion").value || "v1").trim();
-    const flavor = ($("#spellFlavor").value || "").trim();
-
-    const theme = findTheme(themeId);
-    if(!theme){ toast("請先建立主題"); return; }
-
-    const mod = generateModuleFromSpell({theme, type, version, flavor});
-    const list = db.modules();
-    list.unshift(mod);
-    db.setModules(list);
-
-    $("#spellResult").textContent = formatModuleForHuman(mod);
-    toast("已生成模組");
-    refreshAllSelects();
-    renderModuleList();
-  });
-}
-
-function generateModuleFromSpell({theme, type, version, flavor}){
-  const baseId = theme.id.replace(/^theme-/, "");
-  const id = `mod-${type==="A" ? "brake-choice" : "soft-talk"}-${baseId}-${version}`.replace(/[^a-z0-9\-]/gi,"-").toLowerCase();
-
-  if(type==="A"){
-    return {
-      id,
-      type: "A",
-      themeId: theme.id,
-      title: `A｜踩煞車×選擇力｜${theme.sentence}（${version}）`,
-      core: [
-        "練習「等一下」：把衝動拉出 2 秒空間",
-        "分清「想要 vs 需要」：把欲望變清楚，不用壓抑",
-        "把選擇說出口：用一句話讓前額葉接手"
-      ],
-      gameplay: [
-        "1) 看到想買 → 先按『暫停鈕』（深呼吸 1 次）",
-        "2) 口袋卡三問：我想要什麼？我真的需要嗎？我可以等一下嗎？",
-        "3) 選擇一句說出口：『我想要，但我先等一下。』",
-        "4) 完成後點一下『我等一下了』計數（像闖關一樣）"
-      ],
-      rewards: {
-        name: "選擇力能量",
-        points: 3,
-        badges: ["我等一下徽章", "需要想要辨識徽章", "超市冷靜徽章"],
-        streakHint: "連續天數不是打卡，是「大腦剎車系統」長肌肉。"
-      },
-      prompts: {
-        parentLines: [
-          "我不急著說不，我陪你把想要說清楚。",
-          "你可以想要，重點是你能不能先等一下。",
-          "我們先做一個小決定：要不要先等 10 秒？"
-        ],
-        childLines: [
-          "我想要，但我可以等一下。",
-          "這是想要，不是需要。",
-          "我先放回去，等一下再決定。"
-        ],
-        commentLine: "留言一句：今天我『等了一下』，我替自己按了暫停。"
-      },
-      flavor,
+    var pub = {
+      id: uid("publish"),
+      themeId: themeObj.id,
+      themeSentence: themeObj.sentence,
+      videoId: videoObj.id,
+      videoTitle: videoObj.title,
+      videoUrl: videoObj.url,
+      toolId: toolObj.id,
+      toolName: toolObj.name,
+      moduleId: res.module ? res.module.id : "",
+      moduleTitle: res.module ? res.module.title : "",
+      copyId: res.copy ? res.copy.id : "",
+      copyTitle: res.copy ? res.copy.title : "",
+      note: "由『一鍵配對』建立",
       createdAt: nowISO()
     };
-  }
-
-  return {
-    id,
-    type: "B",
-    themeId: theme.id,
-    title: `B｜柔軟彈性×溝通力｜${theme.sentence}（${version}）`,
-    core: [
-      "練習『先穩住』：情緒有地方放，話才有地方走",
-      "練習『善解』：先猜對方的不容易",
-      "練習『感恩』：把關係的好留下來"
-    ],
-    gameplay: [
-      "1) 衝突出現 → 先做『心軟一下』：吸4吐6一次",
-      "2) 選一張『善解卡』：我猜對方是____（累/急/怕/需要被看見）",
-      "3) 選一句『溫柔溝通句』說出口",
-      "4) 完成後點一下『我柔軟了』計數（像升等一樣）"
-    ],
-    rewards: {
-      name: "關係溫度",
-      points: 3,
-      badges: ["我先穩住徽章", "善解一句話徽章", "感恩回收徽章"],
-      streakHint: "連續不是完美，是願意回來一次。"
-    },
-    prompts: {
-      parentLines: [
-        "我先不急著糾正，我想先懂你。",
-        "你不用立刻變好，我們先讓關係軟一點。",
-        "謝謝你願意說出來，我聽到了。"
-      ],
-      childLines: [
-        "我需要你聽我一下。",
-        "我剛剛太急了，我想重來。",
-        "謝謝你陪我。"
-      ],
-      commentLine: "留言一句：今天我做了『心軟一下』，關係變得比較好。"
-    },
-    flavor,
-    createdAt: nowISO()
-  };
-}
-
-function formatModuleForHuman(mod){
-  const theme = findTheme(mod.themeId);
-  return [
-    `【模組】${mod.title}`,
-    `【ID】${mod.id}`,
-    `【主題】${theme?.sentence || mod.themeId}`,
-    ``,
-    `【核心概念】`,
-    ...(mod.core||[]).map(x=>`- ${x}`),
-    ``,
-    `【直覺式遊戲化操作】`,
-    ...(mod.gameplay||[]).map(x=>`- ${x}`),
-    ``,
-    `【獎勵回饋】${mod.rewards?.name || ""} +${mod.rewards?.points || 0}`,
-    `徽章：${(mod.rewards?.badges||[]).join("、")}`,
-    `連續提示：${mod.rewards?.streakHint || ""}`,
-    ``,
-    `【可說出口句】`,
-    `家長：${(mod.prompts?.parentLines||[]).join("｜")}`,
-    `孩子：${(mod.prompts?.childLines||[]).join("｜")}`,
-    ``,
-    `【留言引導】${mod.prompts?.commentLine || ""}`,
-    mod.flavor ? `\n【遊戲風格】${mod.flavor}` : ""
-  ].join("\n");
-}
-
-// ---------- MODULE LAB ----------
-function bindModuleLab(){
-  $("#moduleSearch").addEventListener("input", renderModuleList);
-  $("#moduleFilterType").addEventListener("change", renderModuleList);
-}
-
-function renderModuleList(){
-  const q = byText($("#moduleSearch").value);
-  const ft = $("#moduleFilterType").value;
-
-  let list = db.modules();
-  if(ft !== "all") list = list.filter(m => m.type === ft);
-  if(q){
-    list = list.filter(m=>{
-      const theme = findTheme(m.themeId)?.sentence || "";
-      const blob = `${m.id} ${m.title} ${theme} ${(m.core||[]).join(" ")} ${(m.gameplay||[]).join(" ")} ${m.flavor||""}`.toLowerCase();
-      return blob.includes(q);
-    });
-  }
-
-  const box = $("#moduleList");
-  box.innerHTML = "";
-  if(!list.length){
-    box.innerHTML = `<div class="item muted">尚未有模組（請去咒語生成器）。</div>`;
-    return;
-  }
-
-  list.forEach(m=>{
-    const theme = findTheme(m.themeId);
-    const meta = [m.id, `類型${m.type}`, theme?.sentence || m.themeId];
-    const body = formatModuleForHuman(m);
-
-    const bCopy = btn("複製模組", ()=>copyToClipboard(body));
-    const bDel = btn("刪除", ()=>{
-      if(!confirm("刪除模組？（課程中引用也會移除）")) return;
-      db.setModules(db.modules().filter(x=>x.id!==m.id));
-      const courses = db.courses().map(c => ({...c, moduleIds: (c.moduleIds||[]).filter(id=>id!==m.id)}));
-      db.setCourses(courses);
-      toast("已刪除");
-      refreshAllSelects();
-      renderAll();
-    }, "iconBtn danger");
-
-    $("#moduleList").appendChild(itemShell({title: m.title, metaLines: meta, body, buttons:[bCopy, bDel]}));
-  });
-}
-
-// ---------- (2) COPY SPELL GENERATOR ----------
-let lastCopySpellText = "";
-function bindCopySpell(){
-  $("#formCopySpell").addEventListener("submit", (e)=>{
-    e.preventDefault();
-    const themeId = $("#copySpellTheme").value;
-    const series = $("#copySpellSeries").value;
-    const ctaTone = ($("#copySpellCtaTone").value || "").trim();
-    const saveMode = $("#copySpellSave").value;
-
-    const theme = findTheme(themeId);
-    if(!theme){ toast("請先建立主題"); return; }
-
-    const bestMod = topMatches(theme, db.modules(), (m)=>{
-      const th = findTheme(m.themeId)?.sentence || "";
-      return `${m.title} ${th} ${(m.core||[]).join(" ")} ${(m.gameplay||[]).join(" ")} ${(m.prompts?.commentLine||"")}`;
-    }, 1, 0)[0]?.item || null;
-
-    const text = generateCopyTemplate({theme, series, bestMod, ctaTone});
-    lastCopySpellText = text;
-    $("#copySpellResult").textContent = text;
-    toast("模板已生成");
-
-    if(saveMode === "yes"){
-      const title = `${theme.sentence}｜${series}｜模板草稿 v1`;
-      const item = { id: uid("copy"), title, series, content: text, createdAt: nowISO() };
-      const list = db.copies();
-      list.unshift(item);
-      db.setCopies(list);
-      toast("已存成草稿");
-      refreshAllSelects();
-      renderCopyList();
-    }
-  });
-
-  $("#btnCopySpellToClipboard").addEventListener("click", ()=>{
-    if(!lastCopySpellText){ toast("先生成模板再複製"); return; }
-    copyToClipboard(lastCopySpellText);
-  });
-}
-
-function generateCopyTemplate({theme, series, bestMod, ctaTone}){
-  const hookPunch = {
-    "幸福教養": [
-      "你有沒有發現——孩子不是故意鬧，是『剎車系統』還沒長好？",
-      "孩子一看到想要，整個人像被推著走，停不下來對嗎？",
-      "你不是管不動，你是在跟『衝動』賽跑。"
-    ],
-    "詩詞人生": [
-      "有些詩，像一盞燈——一照就照到我們心裡那個最真實的自己。",
-      "你以為你在讀詩，其實是詩在讀你。",
-      "一首詩，可能比一千句勸說更有效。"
-    ],
-    "腦神經科學": [
-      "你的腦不是懶，是它很會『省電』。",
-      "大腦最愛走老路，因為省力——所以你才會忍不住。",
-      "今天我們用最不說教的方法，偷偷把大腦升級。"
-    ],
-    "人生感悟": [
-      "人生很多時候不是不懂，是太快。",
-      "慢下來，不代表輸；慢下來，是拿回方向盤。",
-      "你不需要更厲害，你只需要更穩。"
-    ],
-    "幸福小腦袋": [
-      "嘿～小腦袋今天要玩一個超酷的遊戲：『我等一下！』",
-      "看到想要的東西？先按一下暫停鈕～",
-      "今天我們來當『小小剎車王』！"
-    ]
-  };
-
-  const pick = (arr)=>arr[Math.floor(Math.random()*arr.length)];
-  const hook = pick(hookPunch[series] || hookPunch["人生感悟"]);
-
-  const toolBlock = bestMod
-    ? [
-        "【好用工具（跟著做，不說教）】",
-        ...(bestMod.gameplay||[]).map(x=>`- ${x}`),
-        "",
-        "【可說出口句（你直接照念就好）】",
-        `- 家長：${(bestMod.prompts?.parentLines||[]).slice(0,3).join("｜")}`,
-        `- 孩子：${(bestMod.prompts?.childLines||[]).slice(0,3).join("｜")}`,
-        ""
-      ].join("\n")
-    : [
-        "【好用工具（跟著做，不說教）】",
-        "- 先暫停 1 次呼吸（吸4吐6）",
-        "- 用一句話把感受說清楚",
-        "- 做一個小選擇：先等一下/先放回去/先重來一句",
-        ""
-      ].join("\n");
-
-  const cta = ctaTone?.length
-    ? ctaTone
-    : "回主頁領工具｜每週更新｜把心站穩，活得自在，幸福感會自己長出來。";
-
-  const commentLine = bestMod?.prompts?.commentLine
-    ? bestMod.prompts.commentLine
-    : "留言一句：今天我給自己『多一秒選擇』。";
-
-  const bodyGuide = {
-    "幸福教養": [
-      "（完整故事）先把情境說出來：孩子怎麼想？你怎麼卡？轉折在哪？",
-      "（心理學）點出：孩子不是壞，是衝動接手；大人要做的是『陪他裝剎車』。",
-      "（腦神經科學）用親民比喻：前額葉=剎車、杏仁核=警報器、基底核=自動導航。",
-      "（練習）帶觀眾做一次：暫停→三問→說出口→計分回饋。",
-      "（收尾）把焦點放回『關係』：不是買不買，而是孩子學會選擇。"
-    ],
-    "詩詞人生": [
-      "（作者介紹）他/她當時的人生處境與心境。",
-      "（詩詞背景）這首詩為何寫？寫給誰？當時發生什麼？",
-      "（全詩）貼上全文（可分段加停頓）。",
-      "（心理學×腦科學）詩句對應：注意力/情緒/自我調節/意義感。",
-      "（生活練習）用一個小練習把詩活出來。"
-    ],
-    "腦神經科學": [
-      "（笑點開場）先讓觀眾『啊我就是這樣』。",
-      "（科普一句話）把概念講得像朋友聊天：大腦省電、習慣走老路。",
-      "（工具）給一個30秒可做的小動作。",
-      "（回饋）用徽章/計分讓人想再玩一次。"
-    ],
-    "人生感悟": [
-      "（故事/觀察）從一個生活小場景切入。",
-      "（轉折）你突然看懂什麼？",
-      "（練習）給一個很小很小的可做步驟。",
-      "（收尾）留一句可以反覆想的話。"
-    ],
-    "幸福小腦袋": [
-      "（遊戲規則）用一句話講清楚：今天要玩什麼？",
-      "（闖關步驟）三步就好：暫停→問一問→選一個。",
-      "（獎勵）星星/徽章/升級詞。",
-      "（收尾）鼓勵孩子：你不是要忍，你是在變強。"
-    ]
-  };
-
-  const guide = (bodyGuide[series] || bodyGuide["人生感悟"]).map(x=>`- ${x}`).join("\n");
-
-  return [
-    `【主題】${theme.sentence}`,
-    theme.pain ? `【觀眾卡點】${theme.pain}` : "",
-    theme.scenario ? `【情境】${theme.scenario}` : "",
-    "",
-    `A. Hook（3–15 秒）`,
-    hook,
-    "",
-    `B. 承諾（今天你會得到什麼）`,
-    `今天我不教你「更用力管」，我帶你用一個更聰明、更溫柔的方法，讓孩子（也讓你）多出「一秒選擇」。`,
-    "",
-    `C. 正文框架（把內容填進去就會變完整稿）`,
-    guide,
-    "",
-    toolBlock,
-    `D. 留言互動引導`,
-    commentLine,
-    "",
-    `E. CTA（導主頁/每週更新/幸福感）`,
-    cta,
-    ""
-  ].filter(Boolean).join("\n");
-}
-
-// ---------- COPY LAB ----------
-function bindCopyLab(){
-  $("#formCopy").addEventListener("submit", (e)=>{
-    e.preventDefault();
-    const title = ($("#copyTitle").value||"").trim();
-    const series = $("#copySeries").value;
-    const content = ($("#copyContent").value||"").trim();
-    if(!title || !content){ toast("標題與內容必填"); return; }
-
-    const item = { id: uid("copy"), title, series, content, createdAt: nowISO() };
-    const list = db.copies();
-    list.unshift(item);
-    db.setCopies(list);
-
-    e.target.reset();
-    toast("文案已儲存");
-    refreshAllSelects();
-    renderCopyList();
-  });
-
-  $("#copySearch").addEventListener("input", renderCopyList);
-}
-
-function renderCopyList(){
-  const q = byText($("#copySearch").value);
-  let list = db.copies();
-  if(q) list = list.filter(c => `${c.title} ${c.series} ${c.content}`.toLowerCase().includes(q));
-
-  const box = $("#copyList");
-  box.innerHTML = "";
-  if(!list.length){
-    box.innerHTML = `<div class="item muted">尚未有文案。</div>`;
-    return;
-  }
-
-  list.forEach(c=>{
-    const meta = [c.id, c.series, c.createdAt ? new Date(c.createdAt).toLocaleString() : ""];
-    const body = c.content;
-
-    const bCopy = btn("複製", ()=>copyToClipboard(body));
-    const bDel = btn("刪除", ()=>{
-      if(!confirm("刪除文案？")) return;
-      db.setCopies(db.copies().filter(x=>x.id!==c.id));
-      toast("已刪除");
-      refreshAllSelects();
-      renderCopyList();
-    }, "iconBtn danger");
-
-    box.appendChild(itemShell({title: c.title, metaLines: meta, body, buttons:[bCopy, bDel]}));
-  });
-}
-
-// ---------- TOOL LAB ----------
-function bindToolLab(){
-  $("#formTool").addEventListener("submit", (e)=>{
-    e.preventDefault();
-    const id = ($("#toolId").value||"").trim() || uid("tool");
-    const name = ($("#toolName").value||"").trim();
-    const desc = ($("#toolDesc").value||"").trim();
-    if(!name){ toast("工具名稱必填"); return; }
-
-    const list = db.tools();
-    if(list.some(x=>x.id===id)){ toast("這個工具ID已存在"); return; }
-    list.unshift({id, name, desc, createdAt: nowISO()});
-    db.setTools(list);
-
-    e.target.reset();
-    toast("工具已新增");
-    refreshAllSelects();
-    renderToolList();
-  });
-
-  $("#toolSearch").addEventListener("input", renderToolList);
-}
-
-function renderToolList(){
-  const q = byText($("#toolSearch").value);
-  let list = db.tools();
-  if(q) list = list.filter(t => `${t.id} ${t.name} ${t.desc}`.toLowerCase().includes(q));
-
-  const box = $("#toolList");
-  box.innerHTML = "";
-  if(!list.length){
-    box.innerHTML = `<div class="item muted">尚未有工具。</div>`;
-    return;
-  }
-
-  list.forEach(t=>{
-    const meta = [t.id, t.createdAt ? new Date(t.createdAt).toLocaleString() : ""];
-    const body = t.desc || "";
-
-    const bCopy = btn("複製說明", ()=>copyToClipboard(`【工具】${t.name}\n${t.desc||""}\n【ID】${t.id}`));
-    const bDel = btn("刪除", ()=>{
-      if(!confirm("刪除工具？（發片套件引用不會自動刪除，但會顯示未知）")) return;
-      db.setTools(db.tools().filter(x=>x.id!==t.id));
-      toast("已刪除");
-      refreshAllSelects();
-      renderAll();
-    }, "iconBtn danger");
-
-    box.appendChild(itemShell({title: t.name, metaLines: meta, body, buttons:[bCopy, bDel]}));
-  });
-}
-
-// ---------- INVENTORY LAB ----------
-let invTab = "videos";
-function bindInventoryLab(){
-  $("#formVideo").addEventListener("submit", (e)=>{
-    e.preventDefault();
-    const id = ($("#videoId").value||"").trim() || uid("video");
-    const title = ($("#videoTitle").value||"").trim();
-    const url = ($("#videoUrl").value||"").trim();
-    const series = $("#videoSeries").value;
-    if(!title || !url){ toast("影片標題與連結必填"); return; }
-
-    const list = db.videos();
-    if(list.some(x=>x.id===id)){ toast("這個影片ID已存在"); return; }
-    list.unshift({id, title, url, series, createdAt: nowISO()});
-    db.setVideos(list);
-
-    e.target.reset();
-    toast("影片已新增");
-    refreshAllSelects();
-    renderInventoryPanel();
-  });
-
-  $$(".tab").forEach(t => t.addEventListener("click", ()=>{
-    $$(".tab").forEach(x=>x.classList.remove("active"));
-    t.classList.add("active");
-    invTab = t.dataset.inv;
-    renderInventoryPanel();
-  }));
-}
-
-function renderInventoryPanel(){
-  const box = $("#inventoryPanel");
-  box.innerHTML = "";
-
-  if(invTab === "videos"){
-    const list = db.videos();
-    if(!list.length){ box.innerHTML = `<div class="item muted">尚未有影片。</div>`; return; }
-    list.forEach(v=>{
-      const meta = [v.id, v.series, v.createdAt ? new Date(v.createdAt).toLocaleString(): ""];
-      const body = `連結：${v.url || "（尚未填）"}`;
-
-      const bOpen = btn("開啟", ()=> v.url ? window.open(v.url, "_blank") : toast("此影片尚未填連結"));
-      const bCopy = btn("複製連結", ()=>copyToClipboard(v.url || ""));
-      const bDel = btn("刪除", ()=>{
-        if(!confirm("刪除影片？")) return;
-        db.setVideos(db.videos().filter(x=>x.id!==v.id));
-        toast("已刪除");
-        refreshAllSelects();
-        renderInventoryPanel();
-      }, "iconBtn danger");
-
-      box.appendChild(itemShell({title: v.title, metaLines: meta, body, buttons:[bOpen, bCopy, bDel]}));
-    });
-    return;
-  }
-
-  if(invTab === "tools"){
-    const list = db.tools();
-    if(!list.length){ box.innerHTML = `<div class="item muted">尚未有工具。</div>`; return; }
-    list.forEach(t=>{
-      const meta = [t.id];
-      const body = t.desc || "";
-      const bCopy = btn("複製", ()=>copyToClipboard(`【工具】${t.name}\n${t.desc||""}`));
-      box.appendChild(itemShell({title: t.name, metaLines: meta, body, buttons:[bCopy]}));
-    });
-    return;
-  }
-
-  const list = db.copies();
-  if(!list.length){ box.innerHTML = `<div class="item muted">尚未有文案。</div>`; return; }
-  list.forEach(c=>{
-    const meta = [c.id, c.series];
-    const body = c.content.slice(0, 400) + (c.content.length>400 ? "\n...\n(內容太長已截斷，請到文案研究室查看)" : "");
-    const bCopy = btn("複製全文", ()=>copyToClipboard(c.content));
-    box.appendChild(itemShell({title: c.title, metaLines: meta, body, buttons:[bCopy]}));
-  });
-}
-
-// ---------- PUBLISH LAB ----------
-function bindPublishLab(){
-  $("#formPublish").addEventListener("submit", (e)=>{
-    e.preventDefault();
-    const themeId = $("#publishTheme").value;
-    const videoId = $("#publishVideo").value;
-    const toolId = $("#publishTool").value;
-    const moduleId = $("#publishModule").value || "";
-    const copyId = $("#publishCopy").value || "";
-    const note = ($("#publishNote").value || "").trim();
-
-    if(!themeId || !videoId || !toolId){ toast("主題/影片/工具必選"); return; }
-
-    const item = {
-      id: uid("pack"),
-      themeId, videoId, toolId, moduleId, copyId,
-      note,
-      createdAt: nowISO()
-    };
-
-    const list = db.publishes();
-    list.unshift(item);
-    db.setPublishes(list);
-
-    e.target.reset();
-    toast("已打包發佈套件");
-    renderPublishList();
-  });
-
-  $("#publishSearch").addEventListener("input", renderPublishList);
-}
-
-function buildPublishText(p){
-  const theme = findTheme(p.themeId);
-  const video = findVideo(p.videoId);
-  const tool = findTool(p.toolId);
-  const mod = p.moduleId ? findModule(p.moduleId) : null;
-  const copy = p.copyId ? findCopy(p.copyId) : null;
-
-  const lines = [];
-  lines.push(`【發佈套件】${theme?.sentence || p.themeId}`);
-  lines.push(`【影片】${video?.title || p.videoId}`);
-  lines.push(`【連結】${video?.url || "（尚未填）"}`);
-  lines.push(`【工具】${tool?.name || p.toolId}`);
-  if(tool?.desc) lines.push(tool.desc);
-  if(mod){
-    lines.push(`\n【模組（留言引導/工具描述）】`);
-    lines.push(formatModuleForHuman(mod));
-  }
-  if(copy){
-    lines.push(`\n【文案（草稿/完稿）】`);
-    lines.push(copy.content);
-  }
-  if(p.note) lines.push(`\n【備註】${p.note}`);
-  return lines.join("\n");
-}
-
-function renderPublishList(){
-  const q = byText($("#publishSearch").value);
-  let list = db.publishes();
-  if(q){
-    list = list.filter(p=>{
-      const theme = findTheme(p.themeId)?.sentence || "";
-      const video = findVideo(p.videoId)?.title || "";
-      const tool = findTool(p.toolId)?.name || "";
-      const blob = `${p.id} ${theme} ${video} ${tool} ${p.note||""}`.toLowerCase();
-      return blob.includes(q);
-    });
-  }
-
-  const box = $("#publishList");
-  box.innerHTML = "";
-  if(!list.length){
-    box.innerHTML = `<div class="item muted">尚未有發佈套件。</div>`;
-    return;
-  }
-
-  list.forEach(p=>{
-    const theme = findTheme(p.themeId);
-    const video = findVideo(p.videoId);
-    const tool = findTool(p.toolId);
-
-    const meta = [p.id, theme?.sentence || p.themeId, video?.title || p.videoId, tool?.name || p.toolId];
-    const body = buildPublishText(p);
-
-    const bCopy = btn("複製套件", ()=>copyToClipboard(body));
-    const bDel = btn("刪除", ()=>{
-      if(!confirm("刪除發佈套件？")) return;
-      db.setPublishes(db.publishes().filter(x=>x.id!==p.id));
-      toast("已刪除");
-      renderPublishList();
-    }, "iconBtn danger");
-
-    box.appendChild(itemShell({title: "發佈套件", metaLines: meta, body, buttons:[bCopy, bDel]}));
-  });
-}
-
-// ---------- COURSE LAB ----------
-function bindCourseLab(){
-  $("#formCourse").addEventListener("submit", (e)=>{
-    e.preventDefault();
-    const id = ($("#courseId").value||"").trim() || uid("course");
-    const name = ($("#courseName").value||"").trim();
-    const desc = ($("#courseDesc").value||"").trim();
-    if(!name){ toast("課程名稱必填"); return; }
-
-    const list = db.courses();
-    if(list.some(x=>x.id===id)){ toast("這個課程ID已存在"); return; }
-    list.unshift({id, name, desc, moduleIds: [], createdAt: nowISO()});
-    db.setCourses(list);
-
-    e.target.reset();
-    toast("課程已新增");
-    refreshAllSelects();
-    renderCourseList();
-  });
-
-  $("#formAssign").addEventListener("submit", (e)=>{
-    e.preventDefault();
-    const courseId = $("#assignCourse").value;
-    const moduleId = $("#assignModule").value;
-    if(!courseId || !moduleId){ toast("請選課程與模組"); return; }
-
-    const list = db.courses();
-    const c = list.find(x=>x.id===courseId);
-    if(!c){ toast("課程不存在"); return; }
-
-    c.moduleIds = c.moduleIds || [];
-    if(!c.moduleIds.includes(moduleId)){
-      c.moduleIds.unshift(moduleId);
-      db.setCourses(list);
-      toast("已加入模組");
-      renderCourseList();
-    }else{
-      toast("模組已在課程內");
-    }
-  });
-
-  $("#courseSearch").addEventListener("input", renderCourseList);
-}
-
-function renderCourseList(){
-  const q = byText($("#courseSearch").value);
-  let list = db.courses();
-  if(q) list = list.filter(c => `${c.id} ${c.name} ${c.desc}`.toLowerCase().includes(q));
-
-  const box = $("#courseList");
-  box.innerHTML = "";
-  if(!list.length){
-    box.innerHTML = `<div class="item muted">尚未有課程。</div>`;
-    return;
-  }
-
-  list.forEach(c=>{
-    const meta = [c.id, c.createdAt ? new Date(c.createdAt).toLocaleString() : ""];
-    const names = (c.moduleIds||[]).map(id => findModule(id)?.title || id);
-    const body = [
-      c.desc ? `描述：${c.desc}` : "",
-      names.length ? `模組：\n- ${names.join("\n- ")}` : "模組：尚未加入"
-    ].filter(Boolean).join("\n");
-
-    const bCopy = btn("複製課綱", ()=>{
-      const text = `【課程】${c.name}\n【描述】${c.desc||""}\n【模組】\n- ${(c.moduleIds||[]).map(id=>findModule(id)?.title || id).join("\n- ")}`;
-      copyToClipboard(text);
-    });
-
-    const bDel = btn("刪除", ()=>{
-      if(!confirm("刪除課程？")) return;
-      db.setCourses(db.courses().filter(x=>x.id!==c.id));
-      toast("已刪除");
-      refreshAllSelects();
-      renderCourseList();
-    }, "iconBtn danger");
-
-    box.appendChild(itemShell({title: c.name, metaLines: meta, body, buttons:[bCopy, bDel]}));
-  });
-}
-
-// ---------- IDEA LAB ----------
-function bindIdeaLab(){
-  $("#formIdea").addEventListener("submit", (e)=>{
-    e.preventDefault();
-    const title = ($("#ideaTitle").value||"").trim();
-    const desc = ($("#ideaDesc").value||"").trim();
-    if(!title){ toast("標題必填"); return; }
-
-    const list = db.ideas();
-    list.unshift({id: uid("idea"), title, desc, createdAt: nowISO()});
-    db.setIdeas(list);
-
-    e.target.reset();
-    toast("已存發想");
-    renderIdeaList();
-  });
-
-  $("#ideaSearch").addEventListener("input", renderIdeaList);
-}
-
-function renderIdeaList(){
-  const q = byText($("#ideaSearch").value);
-  let list = db.ideas();
-  if(q) list = list.filter(i => `${i.title} ${i.desc}`.toLowerCase().includes(q));
-
-  const box = $("#ideaList");
-  box.innerHTML = "";
-  if(!list.length){
-    box.innerHTML = `<div class="item muted">尚未有發想。</div>`;
-    return;
-  }
-
-  list.forEach(i=>{
-    const meta = [i.id, i.createdAt ? new Date(i.createdAt).toLocaleString(): ""];
-    const body = i.desc || "";
-
-    const bCopy = btn("複製", ()=>copyToClipboard(`【發想】${i.title}\n${i.desc||""}`));
-    const bDel = btn("刪除", ()=>{
-      if(!confirm("刪除發想？")) return;
-      db.setIdeas(db.ideas().filter(x=>x.id!==i.id));
-      toast("已刪除");
-      renderIdeaList();
-    }, "iconBtn danger");
-
-    box.appendChild(itemShell({title: i.title, metaLines: meta, body, buttons:[bCopy, bDel]}));
-  });
-}
-
-// ---------- SETTINGS ----------
-function bindSettings(){
-  $("#btnClearAll").addEventListener("click", ()=>{
-    if(!confirm("確定清除所有資料？建議先匯出備份。")) return;
-    Object.values(K).forEach(key => localStorage.removeItem(key));
-    toast("已清除");
-    refreshAllSelects();
+    db.publishes.push(pub);
+    saveDB(db);
+    toast("已建立發佈套件");
     renderAll();
   });
-}
 
-function renderStats(){
-  const stats = [
-    {name:"主題", num: db.themes().length},
-    {name:"模組", num: db.modules().length},
-    {name:"文案", num: db.copies().length},
-    {name:"工具", num: db.tools().length},
-    {name:"影片", num: db.videos().length},
-    {name:"發佈套件", num: db.publishes().length},
-    {name:"課程", num: db.courses().length},
-    {name:"發想", num: db.ideas().length},
-  ];
-
-  const box = $("#stats");
-  if(!box) return;
-  box.innerHTML = "";
-  stats.forEach(s=>{
-    const el = document.createElement("div");
-    el.className = "stat";
-    el.innerHTML = `<div class="statNum">${s.num}</div><div class="statName">${s.name}</div>`;
-    box.appendChild(el);
+  if (btnOpenPublishLabFromMatch) btnOpenPublishLabFromMatch.addEventListener("click", function () {
+    openView("publishLab");
   });
-}
 
-// ---------- selects refresh ----------
-function refreshAllSelects(){
-  const themes = db.themes();
-  const tools = db.tools();
-  const videos = db.videos();
-  const modules = db.modules();
-  const copies = db.copies();
-  const courses = db.courses();
+  // spell generate
+  if (formSpell) formSpell.addEventListener("submit", function (e) {
+    e.preventDefault();
+    var tid = spellTheme.value;
+    var t = findById(db.themes, tid);
+    if (!t) { toast("請先選主題"); return; }
 
-  const fill = (sel, arr, optFn, keepFirst=false) => {
-    const el = $(sel);
-    if(!el) return;
-    const first = keepFirst ? el.querySelector("option")?.outerHTML : "";
-    el.innerHTML = first || "";
-    arr.forEach(x=>{
-      const opt = document.createElement("option");
-      const {value, label} = optFn(x);
-      opt.value = value;
-      opt.textContent = label;
-      el.appendChild(opt);
+    var type = (qsa('input[name="spellType"]', formSpell).filter(function (r) { return r.checked; })[0] || {}).value || "A";
+    var ver = safeText(spellVersion.value).trim() || "v1";
+    var flav = safeText(spellFlavor.value).trim();
+
+    var content = genModuleSpell(t, type, ver, flav);
+    spellResult.textContent = content;
+
+    // 生成後也直接存成模組
+    var m = {
+      id: uid("module"),
+      type: type,
+      version: ver,
+      themeId: t.id,
+      themeSentence: t.sentence,
+      title: "模組" + type + "｜" + t.sentence + "｜" + ver,
+      content: content,
+      createdAt: nowISO()
+    };
+    db.modules.push(m);
+    saveDB(db);
+    toast("模組已生成並存入模組庫");
+    renderAll();
+  });
+
+  if (btnOpenModuleLab) btnOpenModuleLab.addEventListener("click", function () {
+    openView("moduleLab");
+  });
+
+  // module list delegation
+  if (moduleList) moduleList.addEventListener("click", function (e) {
+    var btn = e.target;
+    if (!btn || !btn.getAttribute) return;
+    var act = btn.getAttribute("data-act");
+    var id = btn.getAttribute("data-id");
+    if (!act || !id) return;
+
+    if (act === "delModule") {
+      if (!confirm("要刪除這個模組嗎？")) return;
+      removeById(db.modules, id);
+      saveDB(db);
+      toast("已刪除模組");
+      renderAll();
+    }
+    if (act === "copyModule") {
+      var m = findById(db.modules, id);
+      if (!m) return;
+      copyToClipboard(m.content || "");
+    }
+  });
+
+  // copy spell
+  if (formCopySpell) formCopySpell.addEventListener("submit", function (e) {
+    e.preventDefault();
+    var tid = copySpellTheme.value;
+    var t = findById(db.themes, tid);
+    if (!t) { toast("請先選主題"); return; }
+    var series = copySpellSeries.value;
+    var ctaTone = copySpellCtaTone.value;
+
+    var temp = genCopyTemplate(t, series, ctaTone);
+    copySpellResult.textContent = temp;
+
+    if (copySpellSave.value === "yes") {
+      var c = {
+        id: uid("copy"),
+        title: t.sentence + "｜" + series + "｜草稿 v1",
+        series: series,
+        content: temp,
+        createdAt: nowISO()
+      };
+      db.copies.push(c);
+      saveDB(db);
+      toast("模板已存到文案研究室（草稿）");
+      renderAll();
+    } else {
+      toast("模板已生成");
+    }
+  });
+
+  if (btnCopySpellToClipboard) btnCopySpellToClipboard.addEventListener("click", function () {
+    copyToClipboard(copySpellResult ? copySpellResult.textContent : "");
+  });
+
+  // copy add
+  if (formCopy) formCopy.addEventListener("submit", function (e) {
+    e.preventDefault();
+    var title = safeText(copyTitle.value).trim();
+    var series = copySeries.value;
+    var content = safeText(copyContent.value);
+
+    if (!title) { toast("標題必填"); return; }
+    if (!content.trim()) { toast("內容必填"); return; }
+
+    db.copies.push({
+      id: uid("copy"),
+      title: title,
+      series: series,
+      content: content,
+      createdAt: nowISO()
     });
-  };
-
-  fill("#spellTheme", themes, (t)=>({value:t.id, label:t.sentence}));
-  fill("#publishTheme", themes, (t)=>({value:t.id, label:t.sentence}));
-  fill("#matchTheme", themes, (t)=>({value:t.id, label:t.sentence}));
-  fill("#copySpellTheme", themes, (t)=>({value:t.id, label:t.sentence}));
-
-  fill("#publishTool", tools, (t)=>({value:t.id, label:t.name}));
-  fill("#publishVideo", videos, (v)=>({value:v.id, label:`${v.title} (${v.series||""})`}));
-  fill("#publishModule", modules, (m)=>({value:m.id, label:m.title}), true);
-  fill("#publishCopy", copies, (c)=>({value:c.id, label:`${c.title} (${c.series})`}), true);
-
-  fill("#assignCourse", courses, (c)=>({value:c.id, label:c.name}));
-  fill("#assignModule", modules, (m)=>({value:m.id, label:m.title}));
-}
-
-// ---------- render all ----------
-function renderAll(){
-  renderThemeList();
-  renderModuleList();
-  renderCopyList();
-  renderToolList();
-  renderInventoryPanel();
-  renderPublishList();
-  renderCourseList();
-  renderIdeaList();
-  renderStats();
-}
-
-// ---------- PWA ----------
-function registerSW(){
-  if(!("serviceWorker" in navigator)) return;
-  window.addEventListener("load", async ()=>{
-    try{ await navigator.serviceWorker.register("./sw.js"); }catch(e){}
+    saveDB(db);
+    toast("文案已儲存");
+    formCopy.reset();
+    renderAll();
   });
-}
 
-// ---------- boot ----------
-function boot(){
-  bindTopActions();
-  bindThemeLab();
-  bindSpellLab();
-  bindModuleLab();
-  bindCopySpell();
-  bindCopyLab();
-  bindToolLab();
-  bindInventoryLab();
-  bindPublishLab();
-  bindCourseLab();
-  bindIdeaLab();
-  bindSettings();
+  // copy list delegation
+  if (copyList) copyList.addEventListener("click", function (e) {
+    var btn = e.target;
+    if (!btn || !btn.getAttribute) return;
+    var act = btn.getAttribute("data-act");
+    var id = btn.getAttribute("data-id");
+    if (!act || !id) return;
 
-  refreshAllSelects();
+    if (act === "delCopy") {
+      if (!confirm("要刪除這篇文案嗎？")) return;
+      removeById(db.copies, id);
+      saveDB(db);
+      toast("已刪除文案");
+      renderAll();
+    }
+    if (act === "copyCopy") {
+      var c = findById(db.copies, id);
+      if (!c) return;
+      copyToClipboard(c.content || "");
+    }
+  });
+
+  // tool add
+  if (formTool) formTool.addEventListener("submit", function (e) {
+    e.preventDefault();
+    var id = safeText(toolId.value).trim();
+    if (!id) id = uid("tool");
+    var name = safeText(toolName.value).trim();
+    if (!name) { toast("工具名稱必填"); return; }
+
+    db.tools.push({
+      id: id,
+      name: name,
+      desc: safeText(toolDesc.value),
+      createdAt: nowISO()
+    });
+    saveDB(db);
+    toast("工具已新增");
+    formTool.reset();
+    renderAll();
+  });
+
+  // tool list delegation
+  if (toolList) toolList.addEventListener("click", function (e) {
+    var btn = e.target;
+    if (!btn || !btn.getAttribute) return;
+    var act = btn.getAttribute("data-act");
+    var id = btn.getAttribute("data-id");
+    if (!act || !id) return;
+
+    if (act === "delTool") {
+      if (!confirm("要刪除這個工具嗎？")) return;
+      removeById(db.tools, id);
+      saveDB(db);
+      toast("已刪除工具");
+      renderAll();
+    }
+    if (act === "copyTool") {
+      var t = findById(db.tools, id);
+      if (!t) return;
+      var text = "【工具】" + t.name + "\n\n" + (t.desc || "");
+      copyToClipboard(text);
+    }
+  });
+
+  // video add
+  if (formVideo) formVideo.addEventListener("submit", function (e) {
+    e.preventDefault();
+    var id = safeText(videoId.value).trim();
+    if (!id) id = uid("video");
+    var title = safeText(videoTitle.value).trim();
+    var url = safeText(videoUrl.value).trim();
+    var series = videoSeries.value;
+
+    if (!title) { toast("影片標題必填"); return; }
+    if (!url) { toast("影片連結必填"); return; }
+
+    db.videos.push({
+      id: id,
+      title: title,
+      url: url,
+      series: series,
+      createdAt: nowISO()
+    });
+    saveDB(db);
+    toast("影片已新增");
+    formVideo.reset();
+    renderAll();
+    renderInventory("videos");
+  });
+
+  // inventory tabs
+  if (invTabs && invTabs.length) {
+    for (var t = 0; t < invTabs.length; t++) {
+      invTabs[t].addEventListener("click", function () {
+        for (var j = 0; j < invTabs.length; j++) invTabs[j].classList.remove("active");
+        this.classList.add("active");
+        var type = this.getAttribute("data-inv") || "videos";
+        renderInventory(type);
+      });
+    }
+  }
+
+  // publish add
+  if (formPublish) formPublish.addEventListener("submit", function (e) {
+    e.preventDefault();
+
+    var tid = publishTheme.value;
+    var vid = publishVideo.value;
+    var toid = publishTool.value;
+
+    var t = findById(db.themes, tid);
+    var v = findById(db.videos, vid);
+    var tool = findById(db.tools, toid);
+
+    if (!t) { toast("請選主題"); return; }
+    if (!v) { toast("請選影片"); return; }
+    if (!tool) { toast("請選工具"); return; }
+
+    var mid = publishModule.value;
+    var cid = publishCopy.value;
+    var m = mid ? findById(db.modules, mid) : null;
+    var c = cid ? findById(db.copies, cid) : null;
+
+    var pub = {
+      id: uid("publish"),
+      themeId: t.id,
+      themeSentence: t.sentence,
+      videoId: v.id,
+      videoTitle: v.title,
+      videoUrl: v.url,
+      toolId: tool.id,
+      toolName: tool.name,
+      moduleId: m ? m.id : "",
+      moduleTitle: m ? m.title : "",
+      copyId: c ? c.id : "",
+      copyTitle: c ? c.title : "",
+      note: safeText(publishNote.value).trim(),
+      createdAt: nowISO()
+    };
+
+    db.publishes.push(pub);
+    saveDB(db);
+    toast("發佈套件已建立");
+    formPublish.reset();
+    renderAll();
+  });
+
+  // publish list delegation
+  if (publishList) publishList.addEventListener("click", function (e) {
+    var btn = e.target;
+    if (!btn || !btn.getAttribute) return;
+    var act = btn.getAttribute("data-act");
+    var id = btn.getAttribute("data-id");
+    if (!act || !id) return;
+
+    if (act === "delPublish") {
+      if (!confirm("要刪除這個發佈套件嗎？")) return;
+      removeById(db.publishes, id);
+      saveDB(db);
+      toast("已刪除發佈套件");
+      renderAll();
+    }
+    if (act === "copyPublish") {
+      var p = findById(db.publishes, id);
+      if (!p) return;
+      var lines = [];
+      lines.push("【發佈套件】" + (p.themeSentence || ""));
+      lines.push("影片：" + (p.videoTitle || "") + (p.videoUrl ? "（" + p.videoUrl + "）" : ""));
+      lines.push("工具：" + (p.toolName || ""));
+      if (p.moduleTitle) lines.push("模組：" + p.moduleTitle);
+      if (p.copyTitle) lines.push("文案：" + p.copyTitle);
+      if (p.note) lines.push("備註：" + p.note);
+      copyToClipboard(lines.join("\n"));
+    }
+  });
+
+  // course add
+  if (formCourse) formCourse.addEventListener("submit", function (e) {
+    e.preventDefault();
+    var id = safeText(courseId.value).trim();
+    if (!id) id = uid("course");
+    var name = safeText(courseName.value).trim();
+    if (!name) { toast("課程名稱必填"); return; }
+
+    db.courses.push({
+      id: id,
+      name: name,
+      desc: safeText(courseDesc.value).trim(),
+      moduleIds: [],
+      createdAt: nowISO()
+    });
+    saveDB(db);
+    toast("課程已新增");
+    formCourse.reset();
+    renderAll();
+  });
+
+  // assign module to course
+  if (formAssign) formAssign.addEventListener("submit", function (e) {
+    e.preventDefault();
+    var cid = assignCourse.value;
+    var mid = assignModule.value;
+    if (!cid || !mid) { toast("請選課程與模組"); return; }
+    var c = findById(db.courses, cid);
+    var m = findById(db.modules, mid);
+    if (!c || !m) { toast("資料不存在"); return; }
+
+    if (!c.moduleIds) c.moduleIds = [];
+    // 去重
+    for (var i = 0; i < c.moduleIds.length; i++) {
+      if (c.moduleIds[i] === mid) { toast("這個模組已在課程中"); return; }
+    }
+    c.moduleIds.push(mid);
+    saveDB(db);
+    toast("已加入模組");
+    renderAll();
+  });
+
+  // course list delegation
+  if (courseList) courseList.addEventListener("click", function (e) {
+    var btn = e.target;
+    if (!btn || !btn.getAttribute) return;
+    var act = btn.getAttribute("data-act");
+    var id = btn.getAttribute("data-id");
+    if (!act || !id) return;
+
+    if (act === "delCourse") {
+      if (!confirm("要刪除這個課程嗎？")) return;
+      removeById(db.courses, id);
+      saveDB(db);
+      toast("已刪除課程");
+      renderAll();
+    }
+    if (act === "copyCourse") {
+      var c = findById(db.courses, id);
+      if (!c) return;
+      var lines = [];
+      lines.push("【課程】" + (c.name || ""));
+      if (c.desc) lines.push("描述：" + c.desc);
+      lines.push("模組：");
+      if (c.moduleIds && c.moduleIds.length) {
+        for (var i = 0; i < c.moduleIds.length; i++) {
+          var m = findById(db.modules, c.moduleIds[i]);
+          lines.push("- " + (m ? m.title : c.moduleIds[i]));
+        }
+      } else {
+        lines.push("-（尚未加入）");
+      }
+      copyToClipboard(lines.join("\n"));
+    }
+  });
+
+  // idea add
+  if (formIdea) formIdea.addEventListener("submit", function (e) {
+    e.preventDefault();
+    var title = safeText(ideaTitle.value).trim();
+    var desc = safeText(ideaDesc.value).trim();
+    if (!title) { toast("標題必填"); return; }
+
+    db.ideas.push({
+      id: uid("idea"),
+      title: title,
+      desc: desc,
+      createdAt: nowISO()
+    });
+    saveDB(db);
+    toast("發想已儲存");
+    formIdea.reset();
+    renderAll();
+  });
+
+  // idea list delegation
+  if (ideaList) ideaList.addEventListener("click", function (e) {
+    var btn = e.target;
+    if (!btn || !btn.getAttribute) return;
+    var act = btn.getAttribute("data-act");
+    var id = btn.getAttribute("data-id");
+    if (!act || !id) return;
+
+    if (act === "delIdea") {
+      if (!confirm("要刪除這筆發想嗎？")) return;
+      removeById(db.ideas, id);
+      saveDB(db);
+      toast("已刪除發想");
+      renderAll();
+    }
+    if (act === "copyIdea") {
+      var it = findById(db.ideas, id);
+      if (!it) return;
+      copyToClipboard("【發想】" + it.title + "\n\n" + (it.desc || ""));
+    }
+  });
+
+  // export/import
+  function doExport() {
+    var data = JSON.stringify(db, null, 2);
+    var blob = new Blob([data], { type: "application/json" });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement("a");
+    a.href = url;
+    a.download = "happy-lab-v0.3.2-" + new Date().toISOString().split("T")[0] + ".json";
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(function () {
+      URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    }, 0);
+    toast("已匯出 JSON");
+  }
+  function handleImport(file) {
+    if (!file) return;
+    var reader = new FileReader();
+    reader.onload = function () {
+      try {
+        var obj = JSON.parse(reader.result);
+        if (!obj || typeof obj !== "object") throw new Error("bad");
+        // 只接受我們需要的欄位
+        var base = defaultDB();
+        for (var k in base) {
+          if (base.hasOwnProperty(k)) {
+            if (obj[k] != null) base[k] = obj[k];
+          }
+        }
+        db = base;
+        saveDB(db);
+        toast("已匯入 JSON");
+        renderAll();
+      } catch (e) {
+        toast("匯入失敗：檔案不是有效的 JSON");
+      }
+    };
+    reader.readAsText(file);
+  }
+
+  if (btnExport) btnExport.addEventListener("click", doExport);
+  if (btnExport2) btnExport2.addEventListener("click", doExport);
+  if (fileImport) fileImport.addEventListener("change", function () { handleImport(this.files && this.files[0]); this.value = ""; });
+  if (fileImport2) fileImport2.addEventListener("change", function () { handleImport(this.files && this.files[0]); this.value = ""; });
+
+  // clear
+  if (btnClearAll) btnClearAll.addEventListener("click", function () {
+    if (!confirm("確定要清除所有資料嗎？（不可復原）")) return;
+    localStorage.removeItem(KEY);
+    db = defaultDB();
+    saveDB(db);
+    toast("已清除");
+    renderAll();
+  });
+
+  // quick demo
+  if (btnQuickAddDemo) btnQuickAddDemo.addEventListener("click", addDemo);
+
+  // ======= render all =======
+  function renderAll() {
+    renderStats();
+    syncSelects();
+    renderThemeList();
+    renderToolList();
+    renderModuleList();
+    renderCopyList();
+    renderPublishList();
+    renderCourseList();
+    renderIdeaList();
+
+    // inventory default: 看目前 active tab
+    var activeTab = qs(".tab.active");
+    var inv = activeTab ? activeTab.getAttribute("data-inv") : "videos";
+    renderInventory(inv);
+
+    // last match
+    renderMatch(db._lastMatch);
+  }
+
+  // ======= init =======
   renderAll();
-  registerSW();
-}
-boot();
+
+})();
